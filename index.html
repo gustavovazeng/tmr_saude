@@ -1263,7 +1263,7 @@ function renderAnuncios(){
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:var(--card)">
           <th style="${THCK}"></th>
-          <th onclick="sortCampanhas('campName')" style="${THL};cursor:pointer;user-select:none;color:${cCol==='campName'?'var(--text)':\'var(--hint)\'}">Campanha<span style="color:${cCol==='campName'?'#60a5fa':'var(--hint)'};font-size:9px;margin-left:3px">${cCol==='campName'?(cDir==='asc'?' ↑':' ↓'):'  ↕'}</span></th>
+          <th onclick="sortCampanhas('campName')" style="${THL};cursor:pointer;user-select:none">Campanha ${cCol==="campName"?(cDir==="asc"?"↑":"↓"):"↕"}</th>
           ${thC("spend","Investimento",true)}
           ${thC("leads","Leads",true)}
           ${thC("cpl","Custo por Lead",true)}
@@ -1300,7 +1300,7 @@ function renderAnuncios(){
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:var(--card)">
           <th style="${THCK}"></th>
-          <th onclick="sortAnuncios('adName')" style="${THL};cursor:pointer;user-select:none;color:${col==='adName'?'var(--text)':'var(--hint)'}">Anúncio<span style="color:${col==='adName'?'#60a5fa':'var(--hint)'};font-size:9px;margin-left:3px">${col==='adName'?(dir==='asc'?' ↑':' ↓'):'  ↕'}</span></th>
+          <th onclick="sortAnuncios('adName')" style="${THL};cursor:pointer;user-select:none">Anúncio ${col==="adName"?(dir==="asc"?"↑":"↓"):"↕"}</th>
           ${thC("spend","Investimento",false)}
           ${thC("leads","Leads",false)}
           ${thC("cpl","Custo por Lead",false)}
