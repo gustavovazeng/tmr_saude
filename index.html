@@ -321,6 +321,8 @@ const S = {
   startDate:"", endDate:"", activeQuick:"30d",
   aSort:{col:"spend",dir:"desc"},
   cSort:{col:"spend",dir:"desc"},
+  campSearch:"", adSearch:"",
+  manualSpendHoje:null,
   selectedCamps:new Set(),
   selectedAds:new Set(),
   overlays:{cpl:{inv:false},ctr:{inv:false},cpm:{inv:false},cpc:{inv:false},txConvPg:{inv:false},connect:{inv:false}},
@@ -662,6 +664,8 @@ function toggleCamp(name){
   renderAnuncios();
 }
 function clearCamps(){S.selectedCamps.clear();renderAnuncios();}
+function setCampSearch(v){S.campSearch=v;renderAnuncios();}
+function setAdSearch(v){S.adSearch=v;renderAnuncios();}
 function toggleAd(code){
   if(S.selectedAds.has(code))S.selectedAds.delete(code);
   else S.selectedAds.add(code);
@@ -1134,7 +1138,15 @@ function renderAnuncios(){
       cpm:cImpr>0?(cSpend/cImpr)*1000:0, cpl:cLeads>0?cSpend/cLeads:0});
   }
   const {col:cCol,dir:cDir}=S.cSort;
-  const sortedCamps=[...campRows].sort((a,b)=>cDir==="asc"?a[cCol]-b[cCol]:b[cCol]-a[cCol]);
+  const sortedCamps=[...campRows].sort((a,b)=>{
+    const av=a[cCol]??"",bv=b[cCol]??"";
+    if(typeof av==="string")return cDir==="asc"?av.localeCompare(bv):bv.localeCompare(av);
+    return cDir==="asc"?av-bv:bv-av;
+  });
+
+  // Search filter on camps
+  const _cq=S.campSearch.trim().toLowerCase();
+  const filteredCamps=_cq?sortedCamps.filter(c=>c.campName.toLowerCase().includes(_cq)):sortedCamps;
 
   // Ad rows — filter by selected campaign if any
   const hasCampSel=S.selectedCamps.size>0;
@@ -1159,8 +1171,12 @@ function renderAnuncios(){
   const totCpl=tot.leads>0?tot.spend/tot.leads:0;
   const totCtr=tot.impressions>0?(tot.clicks/tot.impressions)*100:0;
 
+  // Search filter on ads
+  const _aq=S.adSearch.trim().toLowerCase();
+  const filteredAds=_aq?adRows.filter(a=>(a.adName||a.advCode).toLowerCase().includes(_aq)):adRows;
+
   const {col,dir}=S.aSort;
-  const sorted=[...adRows].sort((a,b)=>{
+  const sorted=[...filteredAds].sort((a,b)=>{
     const av=a[col]??0,bv=b[col]??0;
     if(typeof av==="string")return dir==="asc"?av.localeCompare(bv):bv.localeCompare(av);
     return dir==="asc"?av-bv:bv-av;
@@ -1225,10 +1241,11 @@ function renderAnuncios(){
     </div>
 
     <!-- Campanhas -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
       <div class="section-lbl" style="margin-bottom:0">Campanhas</div>
       ${S.selectedCamps.size>0?`<button onclick="clearCamps()" style="font-size:10px;padding:3px 9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#f87171;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Limpar seleção (${S.selectedCamps.size})</button>`:""}
       <span style="font-size:10px;color:var(--hint)">Clique para filtrar anúncios por campanha</span>
+      <input id="camp-search-input" oninput="setCampSearch(this.value)" value="${S.campSearch}" placeholder="Buscar campanha…" style="margin-left:auto;padding:4px 10px;background:var(--surf);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;outline:none;width:220px" onfocus="this.style.borderColor='rgba(96,165,250,.5)'" onblur="this.style.borderColor='var(--border)'"/>
     </div>
     <div style="overflow-x:auto;margin-bottom:22px">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -1243,7 +1260,7 @@ function renderAnuncios(){
           ${thC("cpc","CPC",true)}
         </tr></thead>
         <tbody>
-          ${sortedCamps.map(c=>{
+          ${filteredCamps.map(c=>{
             const sel=S.selectedCamps.has(c.campName);
             return `<tr onclick="toggleCamp('${c.campName.replace(/\\/g,"\\\\").replace(/'/g,"\\'")}' )" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}" onmouseover="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='rgba(255,255,255,.03)'" onmouseout="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='transparent'" data-sel="${sel?'1':'0'}">
               <td style="padding:8px;text-align:center;border-top:1px solid var(--border)">${chkBox(sel)}</td>
@@ -1261,10 +1278,11 @@ function renderAnuncios(){
     </div>
 
     <!-- Anúncios -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
       <div class="section-lbl" style="margin-bottom:0">Anúncios</div>
       ${S.selectedAds.size>0?`<button onclick="clearAds()" style="font-size:10px;padding:3px 9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#f87171;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Limpar seleção (${S.selectedAds.size})</button>`:""}
       <span style="font-size:10px;color:var(--hint)">Clique para selecionar e gerar resumo</span>
+      <input id="ad-search-input" oninput="setAdSearch(this.value)" value="${S.adSearch}" placeholder="Buscar anúncio…" style="margin-left:auto;padding:4px 10px;background:var(--surf);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;outline:none;width:220px" onfocus="this.style.borderColor='rgba(96,165,250,.5)'" onblur="this.style.borderColor='var(--border)'"/>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -1315,6 +1333,14 @@ function renderAnuncios(){
       </div>
     </div>`:""}
   `;
+  // Restore focus in search inputs after re-render
+  const _fid=document.activeElement?.id;
+  if(_fid==="camp-search-input"||_fid==="ad-search-input"){
+    requestAnimationFrame(()=>{
+      const _inp=document.getElementById(_fid);
+      if(_inp){_inp.focus();const _l=_inp.value.length;_inp.setSelectionRange(_l,_l);}
+    });
+  }
 }
 
 
@@ -1341,7 +1367,12 @@ function renderResumo(){
 
   const tot  =periodMetrics(start,end);
   const ontem=periodMetrics(yest,yest);
-  const hoje =periodMetrics(today,today);
+  const hojeBase=periodMetrics(today,today);
+  const hoje={...hojeBase};
+  if(S.manualSpendHoje!==null){
+    hoje.spend=S.manualSpendHoje;
+    hoje.cpl=hoje.trafficLeads>0?hoje.spend/hoje.trafficLeads:0;
+  }
 
   function em(val,meta,higher){
     if(!val||val===0)return "";
@@ -1404,17 +1435,31 @@ _${dateLabel}_\t\t
     </div>`;
   }
 
-  function section(label,m){
+  function section(label,m,isHoje=false){
     const cplE =em(m.cpl,     META_CPL,              false);
     const cnE  =em(m.connect, METAS_T.connect.val,   true);
     const pcE  =em(m.txConvPg,METAS_T.txConvPg.val,  true);
     const cpcE =em(m.cpc,     METAS_T.cpc.val,       false);
     const ctrE =em(m.ctr,     METAS_T.ctr.val,       true);
     const cpmE =em(m.cpm,     METAS_T.cpm.val,       false);
+    const isManual=isHoje&&S.manualSpendHoje!==null;
+    const investRow=isHoje?`
+      <div style="display:grid;grid-template-columns:220px 1fr auto;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);align-items:center">
+        <span style="color:var(--muted);font-size:12px">Investimento</span>
+        <input id="manual-spend-input"
+          value="${isManual?(m.spend||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):''}"
+          placeholder="${fBRLR(hojeBase.spend)}"
+          oninput="setManualSpendHoje(this.value)"
+          onkeydown="if(event.key==='Enter')this.blur()"
+          style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${isManual?'#fbbf24':'var(--text-strong)'};background:transparent;border:none;border-bottom:1px solid ${isManual?'rgba(251,191,36,.4)':'rgba(255,255,255,.1)'};outline:none;padding:2px 0;width:100%"/>
+        <span style="font-size:13px;min-width:80px;text-align:right">
+          ${isManual?`<button onclick="clearManualSpend()" style="font-size:10px;padding:2px 8px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fbbf24;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">↩ Restaurar</button>`:""}
+        </span>
+      </div>`:row("Investimento",fBRLR(m.spend),"","");
     return `
     <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700;color:var(--text-strong);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)">${label}</div>
-      ${row("Investimento",fBRLR(m.spend),"","")}
+      ${investRow}
       ${row("Cadastrados tráfego",m.trafficLeads,"","")}
       ${row("Cadastrados orgânico",m.organicLeads,"","")}
       ${row("Cadastrados total",m.totalLeads,"","")}
@@ -1444,15 +1489,28 @@ _${dateLabel}_\t\t
       <div>
         ${section("📶 Total",tot)}
         ${section("⬅️ Ontem",ontem)}
-        ${section("⬇️ Hoje",hoje)}
+        ${section("⬇️ Hoje",hoje,true)}
       </div>
       <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;position:sticky;top:70px">
         <pre id="resumo-preview" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.8;margin:0;user-select:all">${resumoText.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
       </div>
     </div>`;
   el._resumoText=resumoText;
+  // Restore focus on manual spend input
+  requestAnimationFrame(()=>{
+    const _s=document.getElementById('manual-spend-input');
+    if(_s&&document.activeElement?.id==='manual-spend-input'){
+      const _l=_s.value.length;_s.setSelectionRange(_l,_l);
+    }
+  });
 }
 
+function setManualSpendHoje(v){
+  const n=parseFloat(v.replace(/[R$\s.]/g,"").replace(",","."));
+  S.manualSpendHoje=(isNaN(n)||n<=0)?null:n;
+  renderResumo();
+}
+function clearManualSpend(){S.manualSpendHoje=null;renderResumo();}
 function copyResumo(){
   const el=document.getElementById("page-resumo");
   const text=el?._resumoText||"";
