@@ -1206,6 +1206,7 @@ function renderAnuncios(){
   el._adResumoText=adResumoText;
 
   function sc(v,m,hi){return statusColor(v,m,hi);}
+  const _fid=document.activeElement?.id; // capture before innerHTML destroys focus
   const TH="padding:10px 14px;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);white-space:nowrap";
   const THL="padding:10px 14px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--hint);border-bottom:1px solid var(--border);white-space:nowrap";
   const THCK="width:36px;padding:10px 8px;text-align:center;border-bottom:1px solid var(--border)";
@@ -1251,7 +1252,7 @@ function renderAnuncios(){
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:var(--card)">
           <th style="${THCK}"></th>
-          <th style="${THL}">Campanha</th>
+          <th onclick="sortCampanhas('campName')" style="${THL};cursor:pointer;user-select:none;color:${cCol==='campName'?'var(--text)':\'var(--hint)\'}">Campanha<span style="color:${cCol==='campName'?'#60a5fa':'var(--hint)'};font-size:9px;margin-left:3px">${cCol==='campName'?(cDir==='asc'?' ↑':' ↓'):'  ↕'}</span></th>
           ${thC("spend","Investimento",true)}
           ${thC("leads","Leads",true)}
           ${thC("cpl","Custo por Lead",true)}
@@ -1288,7 +1289,7 @@ function renderAnuncios(){
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:var(--card)">
           <th style="${THCK}"></th>
-          <th style="${THL}">Anúncio</th>
+          <th onclick="sortAnuncios('adName')" style="${THL};cursor:pointer;user-select:none;color:${col==='adName'?'var(--text)':'var(--hint)'}">Anúncio<span style="color:${col==='adName'?'#60a5fa':'var(--hint)'};font-size:9px;margin-left:3px">${col==='adName'?(dir==='asc'?' ↑':' ↓'):'  ↕'}</span></th>
           ${thC("spend","Investimento",false)}
           ${thC("leads","Leads",false)}
           ${thC("cpl","Custo por Lead",false)}
@@ -1333,8 +1334,6 @@ function renderAnuncios(){
       </div>
     </div>`:""}
   `;
-  // Restore focus in search inputs after re-render
-  const _fid=document.activeElement?.id;
   if(_fid==="camp-search-input"||_fid==="ad-search-input"){
     requestAnimationFrame(()=>{
       const _inp=document.getElementById(_fid);
