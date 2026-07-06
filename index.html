@@ -447,10 +447,21 @@ async function loadData(force=false){
     const SHEET_ID="1OdHqcet8LxvhDNMn23PvPVUsxKU0OtLb7Ufn2udOG3E";
     const sheetURL=n=>`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(n)}`;
     async function fetchSheet(name){
-      const res=await fetch(sheetURL(name),{cache:"no-cache"});
+      const ctrl=new AbortController();
+      const timer=setTimeout(()=>ctrl.abort(),20000); // 20s timeout
+      let res;
+      try{
+        res=await fetch(sheetURL(name),{cache:"no-cache",signal:ctrl.signal});
+      }catch(fetchErr){
+        clearTimeout(timer);
+        if(fetchErr.name==="AbortError") throw new Error(`Timeout ao buscar "${name}" — planilha demorou mais de 20s`);
+        throw new Error(`Falha de rede ao buscar "${name}": ${fetchErr.message}`);
+      }
+      clearTimeout(timer);
       if(!res.ok) throw new Error(`Erro ${res.status} ao buscar "${name}" — verifique se a planilha está pública`);
       const text=await res.text();
       if(!text||text.trim().length<10) throw new Error(`Resposta vazia para "${name}"`);
+      console.log(`[sheets] "${name}" OK — ${text.length} chars`);
       return parseCSVText(text);
     }
     [mj, lj] = await Promise.all([
