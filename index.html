@@ -1253,11 +1253,14 @@ function renderAnuncios(){
     </div>
 
     <!-- Campanhas -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       <div class="section-lbl" style="margin-bottom:0">Campanhas</div>
       ${S.selectedCamps.size>0?`<button onclick="clearCamps()" style="font-size:10px;padding:3px 9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#f87171;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Limpar seleção (${S.selectedCamps.size})</button>`:""}
       <span style="font-size:10px;color:var(--hint)">Clique para filtrar anúncios por campanha</span>
-      <input id="camp-search-input" oninput="setCampSearch(this.value)" value="${S.campSearch}" placeholder="Buscar campanha…" style="margin-left:auto;padding:4px 10px;background:var(--surf);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;outline:none;width:220px" onfocus="this.style.borderColor='rgba(96,165,250,.5)'" onblur="this.style.borderColor='var(--border)'"/>
+    </div>
+    <div style="position:relative;margin-bottom:10px">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--hint);font-size:12px;pointer-events:none">🔍</span>
+      <input id="camp-search-input" oninput="setCampSearch(this.value)" value="${S.campSearch}" placeholder="Buscar campanha…" style="width:100%;padding:8px 12px 8px 34px;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box" onfocus="this.style.borderColor='rgba(96,165,250,.4)'" onblur="this.style.borderColor='var(--border)'"/>
     </div>
     <div style="overflow-x:auto;margin-bottom:22px">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -1289,12 +1292,15 @@ function renderAnuncios(){
       </table>
     </div>
 
-    <!-- Anúncios -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+        <!-- Anúncios -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
       <div class="section-lbl" style="margin-bottom:0">Anúncios</div>
       ${S.selectedAds.size>0?`<button onclick="clearAds()" style="font-size:10px;padding:3px 9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#f87171;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Limpar seleção (${S.selectedAds.size})</button>`:""}
       <span style="font-size:10px;color:var(--hint)">Clique para selecionar e gerar resumo</span>
-      <input id="ad-search-input" oninput="setAdSearch(this.value)" value="${S.adSearch}" placeholder="Buscar anúncio…" style="margin-left:auto;padding:4px 10px;background:var(--surf);border:1px solid var(--border);border-radius:7px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;outline:none;width:220px" onfocus="this.style.borderColor='rgba(96,165,250,.5)'" onblur="this.style.borderColor='var(--border)'"/>
+    </div>
+    <div style="position:relative;margin-bottom:10px">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--hint);font-size:12px;pointer-events:none">🔍</span>
+      <input id="ad-search-input" oninput="setAdSearch(this.value)" value="${S.adSearch}" placeholder="Buscar anúncio…" style="width:100%;padding:8px 12px 8px 34px;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box" onfocus="this.style.borderColor='rgba(96,165,250,.4)'" onblur="this.style.borderColor='var(--border)'"/>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
