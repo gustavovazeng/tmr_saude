@@ -244,11 +244,20 @@ input[type=date]::-webkit-calendar-picker-indicator{opacity:.4;cursor:pointer;fi
 <!-- ─── App Header ───────────────────────────────────────────────── -->
 <header class="app-hdr">
   <div class="funil-wrap" id="funil-wrap">
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px">
-      <span class="funil-dot" style="background:var(--green)"></span>
+    <button class="funil-btn" onclick="toggleFunilMenu(event)">
+      <span class="funil-dot" id="funil-dot"></span>
       <div>
-        <div class="funil-name" id="funil-name">TMR Saúde</div>
+        <div class="funil-name" id="funil-name">TMR Saúde - Perpétuo</div>
         <div class="funil-status" id="funil-status">ativo</div>
+      </div>
+      <span class="funil-chevron">▾</span>
+    </button>
+    <div class="funil-menu" id="funil-menu" style="display:none">
+      <div class="funil-opt" id="fopt-perpetuo" onclick="setFunil('perpetuo')">
+        <span class="fopt-dot"></span> TMR Saúde - Perpétuo
+      </div>
+      <div class="funil-opt" id="fopt-seguidores" onclick="setFunil('seguidores')">
+        <span class="fopt-dot"></span> TMR Saúde - Seguidores
       </div>
     </div>
   </div>
@@ -312,12 +321,21 @@ const CHART_LEADS = "#34d399";
 
 // ── State ─────────────────────────────────────────────────────────────────
 const S = {
+  currentFunil:"perpetuo",   // "perpetuo" | "seguidores"
+  // ── Perpétuo data ───────────────────────────────────────────────
   meta:{},        // date → {spend,clicks,impressions,metaLeads,landingViews}
   leadsD:{},      // date → {traffic,organic}
   metaByAd:{}, metaByAdByDate:{},
   metaByCamp:{}, metaByCampByDate:{},
   leadsFat:{},    // faturamento → count (traffic leads all-time)
   leadsEsp:{},    // especialidade → count
+  // ── Seguidores data ─────────────────────────────────────────────
+  distMeta:{},    // date → {spend,clicks,impressions,profileVisits,video3s,video15s}
+  distMetaByAd:{}, distMetaByAdByDate:{},
+  distMetaByCamp:{}, distMetaByCampByDate:{},
+  distSeg:{},     // date → {seguidores,profileVisits}
+  distSegByAd:{}, distSegByCamp:{},
+  manualPlanDist:null,       // planned spend for dist period
   startDate:"", endDate:"", activeQuick:"30d",
   aSort:{col:"spend",dir:"desc"},
   cSort:{col:"spend",dir:"desc"},
@@ -342,7 +360,17 @@ function addDays(iso,n){ const d=new Date(iso+"T12:00:00Z");d.setDate(d.getDate(
 function subDays(iso,n){ return addDays(iso,-n); }
 
 // ── Format helpers ────────────────────────────────────────────────────────
-function parseBRL(s){ if(!s||s==="-"||s==="0")return 0;return parseFloat(String(s).replace(/\./g,"").replace(",",".").trim())||0; }
+function parseBRL(s){
+  if(!s||s==="-"||s==="0")return 0;
+  s=String(s).replace(/[R$\s]/g,"").trim();
+  if(!s||s==="-")return 0;
+  // Both . and , → Brazilian thousands: 1.234,56
+  if(s.includes(",")&&s.includes("."))return parseFloat(s.replace(/\./g,"").replace(",","."))||0;
+  // Only , → Brazilian decimal: 2,68
+  if(s.includes(","))return parseFloat(s.replace(",","."))||0;
+  // Only . → US decimal: 2.68
+  return parseFloat(s)||0;
+}
 function fBRL(n){ return "R$ "+(n||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function fBRLShort(n){ const a=Math.abs(n||0),sg=n<0?"-":"";if(a>=1000)return sg+"R$ "+(a/1000).toFixed(1).replace(".",",")+"k";return sg+"R$ "+Math.round(a); }
 function fPct(n){ return (n||0).toFixed(1)+"%"; }
@@ -353,7 +381,18 @@ function toISO(s){
   s=String(s).trim().split(" ")[0];
   if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
   const p=s.split("/");
-  if(p.length===3){const y=p[2].length===4?p[2]:"20"+p[2];return `${y}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`;}
+  if(p.length===3){
+    const y=p[2].length===4?p[2]:"20"+p[2];
+    const a=parseInt(p[0]),b=parseInt(p[1]);
+    // If first part > 12 → must be DD/MM/YYYY (BR)
+    // If second part > 12 → must be MM/DD/YYYY (US)
+    // Ambiguous → assume BR (DD/MM)
+    if(b>12){
+      // MM/DD/YYYY (US format from Google Sheets export)
+      return `${y}-${p[0].padStart(2,"0")}-${p[1].padStart(2,"0")}`;
+    }
+    return `${y}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`;
+  }
   return null;
 }
 function stripTime(s){ if(!s)return s;return String(s).trim().split(" ")[0]; }
@@ -464,11 +503,14 @@ async function loadData(force=false){
       console.log(`[sheets] "${name}" OK — ${text.length} chars`);
       return parseCSVText(text);
     }
-    [mj, lj] = await Promise.all([
+    let dj, sj;
+    [mj, lj, dj, sj] = await Promise.all([
       fetchSheet("Base Meta"),
       fetchSheet("Base leads"),
+      fetchSheet("Base Meta - dist"),
+      fetchSheet("Base seguidores"),
     ]);
-    console.log("[sheets] Meta:",mj.values.length-1,"linhas | Leads:",lj.values.length-1);
+    console.log("[sheets] Meta:",mj.values.length-1,"| Leads:",lj.values.length-1,"| Dist:",dj.values.length-1,"| Seg:",sj.values.length-1);
 
     // ── Process Meta ─────────────────────────────────────────────────────
     const mD={}, mByAd={}, mByAdByDate={}, mByCamp={}, mByCampByDate={};
@@ -519,6 +561,83 @@ async function loadData(force=false){
     }
     S.meta=mD; S.metaByAd=mByAd; S.metaByAdByDate=mByAdByDate;
     S.metaByCamp=mByCamp; S.metaByCampByDate=mByCampByDate;
+
+    // ── Process Dist Meta ─────────────────────────────────────────────
+    const dMeta={}, dByAd={}, dByAdByDate={}, dByCamp={}, dByCampByDate={};
+    // Handle duplicate header rows in Base Meta - dist
+    // Normalize doubled headers from gviz ("Date Date" → "Date", "Spend (Cost, Amount Spent) Spend (Cost, Amount Spent)" → "Spend (Cost, Amount Spent)")
+    function normHeaders(r){const n={};for(const[k,v]of Object.entries(r)){const m=k.match(/^(.+) \1$/);n[m?m[1]:k]=v;}return n;}
+    const distRows=parseSheet(dj).map(normHeaders).filter(r=>r["Date"]&&r["Date"]!=="Date");
+    for(const r of distRows){
+      const d=toISO(r["Date"]);if(!d)continue;
+      const sp=parseBRL(r["Spend (Cost, Amount Spent)"]||r["Amount Spent (BRL)"]||r["Valor gasto (BRL)"]||r["Valor gasto"]||r["Spend"]||"0");
+      const cl=parseInt(r["Action Link Clicks"]||r["Link Clicks"]||0)||0;
+      const im=parseInt(r["Impressions"]||0)||0;
+      const pv=parseInt(r["Instagram Profile Visits"]||r["Instagram Profile Visit"]||r["Profile Visits"]||0)||0;
+      const v3=parseInt(r["Action 3s Video Views"]||r["Action Video View"]||r["Action 3s Video Views Action Video View"]||0)||0;
+      const v15=parseInt(r["Video 15 Sec Watched Actions"]||0)||0;
+      if(!dMeta[d])dMeta[d]={spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
+      dMeta[d].spend+=sp; dMeta[d].clicks+=cl; dMeta[d].impressions+=im;
+      dMeta[d].profileVisits+=pv; dMeta[d].video3s+=v3; dMeta[d].video15s+=v15;
+      const adName=(r["Ad Name"]||"").trim();
+      const campName=(r["Campaign Name"]||"—").trim();
+      const igUrl=r["Instagram Permalink URL"]||"";
+      if(adName){
+        if(!dByAd[adName])dByAd[adName]={adName,spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0,igUrl:"",camps:new Set()};
+        dByAd[adName].spend+=sp; dByAd[adName].clicks+=cl; dByAd[adName].impressions+=im;
+        dByAd[adName].profileVisits+=pv; dByAd[adName].video3s+=v3; dByAd[adName].video15s+=v15;
+        if(igUrl&&!dByAd[adName].igUrl)dByAd[adName].igUrl=igUrl;
+        if(campName&&campName!=="—")dByAd[adName].camps.add(campName);
+        if(!dByAdByDate[adName])dByAdByDate[adName]={};
+        if(!dByAdByDate[adName][d])dByAdByDate[adName][d]={spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0,igUrl:""};
+        dByAdByDate[adName][d].spend+=sp; dByAdByDate[adName][d].clicks+=cl;
+        dByAdByDate[adName][d].impressions+=im; dByAdByDate[adName][d].profileVisits+=pv;
+        dByAdByDate[adName][d].video3s+=v3; dByAdByDate[adName][d].video15s+=v15;
+        if(igUrl&&!dByAdByDate[adName][d].igUrl)dByAdByDate[adName][d].igUrl=igUrl;
+      }
+      if(campName&&campName!=="—"){
+        if(!dByCamp[campName])dByCamp[campName]={campName,spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
+        dByCamp[campName].spend+=sp; dByCamp[campName].clicks+=cl; dByCamp[campName].impressions+=im;
+        dByCamp[campName].profileVisits+=pv; dByCamp[campName].video3s+=v3; dByCamp[campName].video15s+=v15;
+        if(!dByCampByDate[campName])dByCampByDate[campName]={};
+        if(!dByCampByDate[campName][d])dByCampByDate[campName][d]={spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
+        dByCampByDate[campName][d].spend+=sp; dByCampByDate[campName][d].clicks+=cl;
+        dByCampByDate[campName][d].impressions+=im; dByCampByDate[campName][d].profileVisits+=pv;
+        dByCampByDate[campName][d].video3s+=v3; dByCampByDate[campName][d].video15s+=v15;
+      }
+    }
+    S.distMeta=dMeta; S.distMetaByAd=dByAd; S.distMetaByAdByDate=dByAdByDate;
+    S.distMetaByCamp=dByCamp; S.distMetaByCampByDate=dByCampByDate;
+
+    // ── Process Seguidores ────────────────────────────────────────────
+    function toISOSeg(raw){
+      if(!raw)return"";
+      raw=raw.trim();
+      if(/^\d{4}-\d{2}-\d{2}$/.test(raw))return raw;
+      const m=raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      return m?`${m[3]}-${m[2]}-${m[1]}`:"";
+    }
+    const dSeg={}, dSegByAd={}, dSegByCamp={};
+    for(const r of parseSheet(sj)){
+      const d=toISOSeg(r["Dia"]);if(!d)continue;
+      const seg=parseInt(r["Seguidores no Instagram"]||0)||0;
+      const pv=parseInt(r["Visitas ao perfil do Instagram"]||0)||0;
+      if(!dSeg[d])dSeg[d]={seguidores:0,profileVisits:0};
+      dSeg[d].seguidores+=seg; dSeg[d].profileVisits+=pv;
+      const adName=(r["Nome do anúncio"]||"").trim();
+      const campName=(r["Nome da campanha"]||"").trim();
+      if(adName){
+        if(!dSegByAd[adName])dSegByAd[adName]={};
+        if(!dSegByAd[adName][d])dSegByAd[adName][d]={seguidores:0};
+        dSegByAd[adName][d].seguidores+=seg;
+      }
+      if(campName){
+        if(!dSegByCamp[campName])dSegByCamp[campName]={};
+        if(!dSegByCamp[campName][d])dSegByCamp[campName][d]={seguidores:0};
+        dSegByCamp[campName][d].seguidores+=seg;
+      }
+    }
+    S.distSeg=dSeg; S.distSegByAd=dSegByAd; S.distSegByCamp=dSegByCamp;
 
     // ── Process Leads ─────────────────────────────────────────────────────
     const lD={};
@@ -640,6 +759,60 @@ function getDayMetrics(iso){
   };
 }
 
+// ── Dist/Seg helpers ─────────────────────────────────────────────────────
+function getDailyDist(start,end){
+  const allDates=new Set([...Object.keys(S.distMeta),...Object.keys(S.distSeg)]);
+  return Array.from(allDates).sort().filter(d=>d>=start&&d<=end).map(date=>{
+    const m=S.distMeta[date]||{spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
+    const sg=S.distSeg[date]||{seguidores:0,profileVisits:0};
+    const pv=(m.profileVisits||0)+(sg.profileVisits||0)>0?(m.profileVisits||sg.profileVisits||0):0;
+    const seguidores=sg.seguidores||0;
+    const hookRate=m.impressions>0?(m.video3s/m.impressions)*100:0;
+    const holdRate=m.video3s>0?(m.video15s/m.video3s)*100:0;
+    return{date,label:fDate(date),spend:m.spend,clicks:m.clicks,impressions:m.impressions,
+      profileVisits:m.profileVisits||sg.profileVisits||0,video3s:m.video3s,video15s:m.video15s,seguidores,
+      hookRate,holdRate,
+      cpc:m.clicks>0?m.spend/m.clicks:0,
+      ctr:m.impressions>0?(m.clicks/m.impressions)*100:0,
+      cpm:m.impressions>0?(m.spend/m.impressions)*1000:0,
+      custoPorVisita:(m.profileVisits||sg.profileVisits||0)>0?m.spend/(m.profileVisits||sg.profileVisits||0):0,
+      custoPorSeguidor:seguidores>0?m.spend/seguidores:0,
+      txConvSeg:(m.profileVisits||sg.profileVisits||0)>0?(seguidores/(m.profileVisits||sg.profileVisits||0))*100:0};
+  });
+}
+function getTotalsDist(daily){
+  const t=daily.reduce((a,d)=>({
+    spend:a.spend+d.spend,clicks:a.clicks+d.clicks,impressions:a.impressions+d.impressions,
+    profileVisits:a.profileVisits+d.profileVisits,video3s:a.video3s+d.video3s,
+    video15s:a.video15s+d.video15s,seguidores:a.seguidores+d.seguidores,
+  }),{spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0,seguidores:0});
+  return{...t,
+    hookRate:t.impressions>0?(t.video3s/t.impressions)*100:0,
+    holdRate:t.video3s>0?(t.video15s/t.video3s)*100:0,
+    cpc:t.clicks>0?t.spend/t.clicks:0,
+    ctr:t.impressions>0?(t.clicks/t.impressions)*100:0,
+    cpm:t.impressions>0?(t.spend/t.impressions)*1000:0,
+    custoPorVisita:t.profileVisits>0?t.spend/t.profileVisits:0,
+    custoPorSeguidor:t.seguidores>0?t.spend/t.seguidores:0,
+    txConvSeg:t.profileVisits>0?(t.seguidores/t.profileVisits)*100:0};
+}
+function getDayMetricsDist(iso){
+  const m=S.distMeta[iso]||{spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
+  const sg=S.distSeg[iso]||{seguidores:0,profileVisits:0};
+  const pv=m.profileVisits||sg.profileVisits||0;
+  const seguidores=sg.seguidores||0;
+  return{spend:m.spend,clicks:m.clicks,impressions:m.impressions,profileVisits:pv,
+    video3s:m.video3s,video15s:m.video15s,seguidores,
+    hookRate:m.impressions>0?(m.video3s/m.impressions)*100:0,
+    holdRate:m.video3s>0?(m.video15s/m.video3s)*100:0,
+    cpc:m.clicks>0?m.spend/m.clicks:0,
+    ctr:m.impressions>0?(m.clicks/m.impressions)*100:0,
+    cpm:m.impressions>0?(m.spend/m.impressions)*1000:0,
+    custoPorVisita:pv>0?m.spend/pv:0,
+    custoPorSeguidor:seguidores>0?m.spend/seguidores:0,
+    txConvSeg:pv>0?(seguidores/pv)*100:0};
+}
+
 // ── Navigation ────────────────────────────────────────────────────────────
 function navTo(page){
   S.currentPage=page;
@@ -662,27 +835,27 @@ function onDCCurrent(w,v){
 function sortCampanhas(col){
   if(S.cSort.col===col)S.cSort.dir=S.cSort.dir==="asc"?"desc":"asc";
   else{S.cSort.col=col;S.cSort.dir="desc";}
-  renderAnuncios();
+  S.currentFunil==="seguidores"?renderAnunciosSeg():renderAnuncios();
 }
 function sortAnuncios(col){
   if(S.aSort.col===col)S.aSort.dir=S.aSort.dir==="asc"?"desc":"asc";
   else{S.aSort.col=col;S.aSort.dir="desc";}
-  renderAnuncios();
+  S.currentFunil==="seguidores"?renderAnunciosSeg():renderAnuncios();
 }
 function toggleCamp(name){
   if(S.selectedCamps.has(name))S.selectedCamps.delete(name);
   else S.selectedCamps.add(name);
-  renderAnuncios();
+  S.currentFunil==="seguidores"?renderAnunciosSeg():renderAnuncios();
 }
-function clearCamps(){S.selectedCamps.clear();renderAnuncios();}
-function setCampSearch(v){S.campSearch=v;renderAnuncios();}
-function setAdSearch(v){S.adSearch=v;renderAnuncios();}
+function clearCamps(){S.selectedCamps.clear();S.currentFunil==="seguidores"?renderAnunciosSeg():renderAnuncios();}
+function setCampSearch(v){S.campSearch=v;S.currentFunil==="seguidores"?renderAnunciosSeg():renderAnuncios();}
+function setAdSearch(v){S.adSearch=v;S.currentFunil==="seguidores"?renderAnunciosSeg():renderAnuncios();}
 function toggleAd(code){
   if(S.selectedAds.has(code))S.selectedAds.delete(code);
   else S.selectedAds.add(code);
-  renderAnuncios();
+  S.currentFunil==="seguidores"?renderAnunciosSeg():renderAnuncios();
 }
-function clearAds(){S.selectedAds.clear();renderAnuncios();}
+function clearAds(){S.selectedAds.clear();S.currentFunil==="seguidores"?renderAnunciosSeg():renderAnuncios();}
 function copyAdResumo(){
   const el=document.getElementById("page-anuncios");
   const text=el?._adResumoText||"";if(!text)return;
@@ -698,18 +871,52 @@ function toggleOverlay(key,which){
 
 // ── Period / Header ───────────────────────────────────────────────────────
 function getCurrentPeriod(){return{s:S.startDate,e:S.endDate,q:S.activeQuick};}
+function toggleFunilMenu(e){
+  e.stopPropagation();
+  const m=document.getElementById("funil-menu");
+  if(m)m.style.display=m.style.display==="none"?"block":"none";
+}
+function setFunil(funil){
+  S.currentFunil=funil;
+  S.currentPage="principal";
+  S.campSearch=""; S.adSearch="";
+  S.selectedCamps=new Set(); S.selectedAds=new Set();
+  S.manualSpendHoje=null;
+  const m=document.getElementById("funil-menu");
+  if(m)m.style.display="none";
+  render();
+}
+document.addEventListener("click",()=>{
+  const m=document.getElementById("funil-menu");
+  if(m)m.style.display="none";
+});
+
 function renderHeader(){
   const p=S.currentPage;
-  const fn=document.getElementById("funil-name");if(fn)fn.textContent="TMR Saúde";
+  const isSeg=S.currentFunil==="seguidores";
+  const fn=document.getElementById("funil-name");
+  if(fn)fn.textContent=isSeg?"TMR Saúde - Seguidores":"TMR Saúde - Perpétuo";
   const fs=document.getElementById("funil-status");if(fs)fs.textContent="ativo";
+  // Update dropdown active state
+  ["perpetuo","seguidores"].forEach(f=>{
+    const el=document.getElementById("fopt-"+f);
+    if(el)el.className="funil-opt"+(S.currentFunil===f?" fopt-active":"");
+  });
   const tabsEl=document.getElementById("hdr-tabs");if(!tabsEl)return;
-  const TABS=[
+  const TABS_PERP=[
     {id:"principal",label:"⊞ Principal"},
     {id:"funil",label:"▽ Métricas do funil"},
     {id:"trafego",label:"⟳ Métricas tráfego"},
     {id:"anuncios",label:"◈ Campanhas / Anúncios"},
     {id:"resumo",label:"📋 Resumo diário"},
   ];
+  const TABS_SEG=[
+    {id:"principal",label:"⊞ Principal"},
+    {id:"trafego",label:"⟳ Métricas tráfego"},
+    {id:"anuncios",label:"◈ Campanhas / Anúncios"},
+    {id:"resumo",label:"📋 Resumo diário"},
+  ];
+  const TABS=isSeg?TABS_SEG:TABS_PERP;
   tabsEl.innerHTML=TABS.map(t=>`<button class="htab${p===t.id?" htab-active":""}" onclick="navTo('${t.id}')">${t.label}</button>`).join("");
   const per=getCurrentPeriod();
   const QUICKS=["hoje","ontem","7d","30d","mes"];
@@ -814,6 +1021,120 @@ function drawLeadsBar(id,data,cssW,cssH){
   }
   drawBars(ctx,xP,yP,P.t+cH,vals,CHART_LEADS,barW);
   // Count labels above bars
+  const step=n>60?7:n>30?3:n>14?2:1;
+  ctx.textAlign="center";
+  vals.forEach((v,i)=>{
+    if(v>0&&(n<=30||i%step===0)){
+      ctx.fillStyle="#e8edf6";ctx.font=`bold ${Math.min(10,Math.max(7,barW))}px 'DM Mono',monospace`;
+      ctx.fillText(v,xP(i),yP(v)-4);
+    }
+  });
+  ctx.fillStyle=TICK_C;ctx.font="9px 'DM Mono',monospace";
+  data.forEach((d,i)=>{if(i%step===0)ctx.fillText(d.label,xP(i),P.t+cH+18);});
+}
+
+function drawDualDist(id,data,cssW,cssH){
+  const ctx=initCanvas(id,cssW,cssH);if(!ctx)return;
+  const P={t:14,r:58,b:28,l:64};
+  const cW=cssW-P.l-P.r,cH=cssH-P.t-P.b;
+  const lVals=data.map(d=>d.spend||0);
+  const rVals=data.map(d=>d.custoPorSeguidor||0);
+  const lMax=Math.max(...lVals,0.01)*1.15;
+  const rMax=Math.max(...rVals,0.01)*1.4;
+  const xP=i=>P.l+(data.length>1?i/(data.length-1):0.5)*cW;
+  const yPL=v=>P.t+cH-(v/lMax)*cH;
+  const yPR=v=>P.t+cH-(v/rMax)*cH;
+  ctx.setLineDash([]);
+  for(let i=0;i<=4;i++){
+    const y=P.t+(i/4)*cH;
+    ctx.strokeStyle=GRID_C;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();
+    ctx.fillStyle=TICK_C;ctx.font="10px 'DM Mono',monospace";
+    ctx.textAlign="right";ctx.fillText(fBRLShort(lMax-(i/4)*lMax),P.l-5,y+3.5);
+    ctx.textAlign="left";ctx.fillText("R$"+(rMax-(i/4)*rMax).toFixed(0),P.l+cW+5,y+3.5);
+  }
+  drawLineArea(ctx,xP,yPL,lVals,CHART_INV,true);
+  drawLineArea(ctx,xP,yPR,rVals,CHART_CPL,false);
+  const step=data.length>60?7:data.length>30?3:data.length>14?2:1;
+  ctx.fillStyle=TICK_C;ctx.font="10px 'DM Mono',monospace";ctx.textAlign="center";ctx.setLineDash([]);
+  data.forEach((d,i)=>{if(i%step===0)ctx.fillText(d.label,xP(i),P.t+cH+18);});
+}
+function drawSegBar(id,data,cssW,cssH){
+  const ctx=initCanvas(id,cssW,cssH);if(!ctx)return;
+  const P={t:14,r:12,b:28,l:40};
+  const cW=cssW-P.l-P.r,cH=cssH-P.t-P.b;
+  const vals=data.map(d=>d.seguidores||0);
+  const maxV=Math.max(...vals,1)*1.15;
+  const n=data.length;
+  const barW=Math.max(4,Math.min(18,(cW/n)*0.7));
+  const xP=i=>P.l+(n>1?i/(n-1):0.5)*cW;
+  const yP=v=>P.t+cH-(v/maxV)*cH;
+  ctx.setLineDash([]);
+  for(let i=0;i<=4;i++){
+    const y=P.t+(i/4)*cH;
+    ctx.strokeStyle=GRID_C;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();
+    ctx.fillStyle=TICK_C;ctx.font="9px 'DM Mono',monospace";ctx.textAlign="right";
+    ctx.fillText(Math.round(maxV-(i/4)*maxV),P.l-4,y+3);
+  }
+  drawBars(ctx,xP,yP,P.t+cH,vals,"#10b981",barW);
+  const step=n>60?7:n>30?3:n>14?2:1;
+  ctx.textAlign="center";
+  vals.forEach((v,i)=>{
+    if(v>0&&(n<=30||i%step===0)){
+      ctx.fillStyle="#e8edf6";ctx.font=`bold ${Math.min(10,Math.max(7,barW))}px 'DM Mono',monospace`;
+      ctx.fillText(v,xP(i),yP(v)-4);
+    }
+  });
+  ctx.fillStyle=TICK_C;ctx.font="9px 'DM Mono',monospace";
+  data.forEach((d,i)=>{if(i%step===0)ctx.fillText(d.label,xP(i),P.t+cH+18);});
+}
+
+function drawDualCustoVisita(id,data,cssW,cssH){
+  const ctx=initCanvas(id,cssW,cssH);if(!ctx)return;
+  const P={t:14,r:58,b:28,l:64};
+  const cW=cssW-P.l-P.r,cH=cssH-P.t-P.b;
+  const lVals=data.map(d=>d.spend||0);
+  const rVals=data.map(d=>d.custoPorVisita||0);
+  const lMax=Math.max(...lVals,0.01)*1.15;
+  const rMax=Math.max(...rVals,0.01)*1.4;
+  const xP=i=>P.l+(data.length>1?i/(data.length-1):0.5)*cW;
+  const yPL=v=>P.t+cH-(v/lMax)*cH;
+  const yPR=v=>P.t+cH-(v/rMax)*cH;
+  ctx.setLineDash([]);
+  for(let i=0;i<=4;i++){
+    const y=P.t+(i/4)*cH;
+    ctx.strokeStyle=GRID_C;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();
+    ctx.fillStyle=TICK_C;ctx.font="10px 'DM Mono',monospace";
+    ctx.textAlign="right";ctx.fillText(fBRLShort(lMax-(i/4)*lMax),P.l-5,y+3.5);
+    ctx.textAlign="left";ctx.fillText("R$"+(rMax-(i/4)*rMax).toFixed(0),P.l+cW+5,y+3.5);
+  }
+  drawLineArea(ctx,xP,yPL,lVals,CHART_INV,true);
+  drawLineArea(ctx,xP,yPR,rVals,CHART_CPL,false);
+  const step=data.length>60?7:data.length>30?3:data.length>14?2:1;
+  ctx.fillStyle=TICK_C;ctx.font="10px 'DM Mono',monospace";ctx.textAlign="center";ctx.setLineDash([]);
+  data.forEach((d,i)=>{if(i%step===0)ctx.fillText(d.label,xP(i),P.t+cH+18);});
+}
+function drawProfileBar(id,data,cssW,cssH){
+  const ctx=initCanvas(id,cssW,cssH);if(!ctx)return;
+  const P={t:14,r:12,b:28,l:44};
+  const cW=cssW-P.l-P.r,cH=cssH-P.t-P.b;
+  const vals=data.map(d=>d.profileVisits||0);
+  const maxV=Math.max(...vals,1)*1.15;
+  const n=data.length;
+  const barW=Math.max(4,Math.min(18,(cW/n)*0.7));
+  const xP=i=>P.l+(n>1?i/(n-1):0.5)*cW;
+  const yP=v=>P.t+cH-(v/maxV)*cH;
+  ctx.setLineDash([]);
+  for(let i=0;i<=4;i++){
+    const y=P.t+(i/4)*cH;
+    ctx.strokeStyle=GRID_C;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();
+    ctx.fillStyle=TICK_C;ctx.font="9px 'DM Mono',monospace";ctx.textAlign="right";
+    ctx.fillText(Math.round(maxV-(i/4)*maxV),P.l-4,y+3);
+  }
+  drawBars(ctx,xP,yP,P.t+cH,vals,CHART_COLOR,barW);
   const step=n>60?7:n>30?3:n>14?2:1;
   ctx.textAlign="center";
   vals.forEach((v,i)=>{
@@ -1540,6 +1861,493 @@ function copyResumo(){
 }
 
 // ── Main render ───────────────────────────────────────────────────────────
+// ── Render Principal (Seguidores) ────────────────────────────────────────
+function renderPrincipalSeg(){
+  const el=document.getElementById("page-principal");if(!el)return;
+  const daily=getDailyDist(S.startDate,S.endDate);
+  const tot=getTotalsDist(daily);
+  el.innerHTML=`
+    <div class="hdr" style="margin-bottom:6px">
+      <div>
+        <div class="hdr-title">TMR Saúde — Seguidores</div>
+        <div class="hdr-sub">atualizado em: ${S.updated||"—"}${daily.length>0?` · ${daily.length} dias`:""}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px">${statusLegend()}</div>
+    </div>
+    ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:13px;margin-bottom:16px">
+      ${kpiCard("Investimento",fBRL(tot.spend),"","var(--text-strong)")}
+      ${kpiCard("Visitas ao Perfil",tot.profileVisits.toLocaleString("pt-BR"),"","var(--text-strong)")}
+      ${kpiCard("Custo/Visita",tot.custoPorVisita>0?fBRL(tot.custoPorVisita):"—","","var(--text-strong)")}
+      ${kpiCard("Seguidores",tot.seguidores.toLocaleString("pt-BR"),"","var(--text-strong)")}
+      ${kpiCard("Custo/Seguidor",tot.custoPorSeguidor>0?fBRL(tot.custoPorSeguidor):"—","","var(--text-strong)")}
+    </div>
+    <div class="cc" style="margin-bottom:12px;position:relative">
+      <div class="ch">
+        <span class="ct">Investimento × Custo/Seguidor</span>
+        <div class="lg">
+          <span class="li"><span class="ll" style="background:${CHART_INV}"></span>Invest. (esq.)</span>
+          <span class="li"><span class="ll" style="background:${CHART_CPL}"></span>Custo/Seg. (dir.)</span>
+        </div>
+      </div>
+      <div style="position:relative"><canvas id="c-dual-seg"></canvas><div class="tip" id="t-dual-seg"></div></div>
+    </div>
+    <div class="cc" style="margin-bottom:12px;position:relative">
+      <div class="ch">
+        <span class="ct">Volume de Seguidores</span>
+        <div class="lg"><span class="li"><span class="ld" style="background:#10b981"></span>Seguidores/dia</span></div>
+      </div>
+      <div style="position:relative"><canvas id="c-seg-bar"></canvas><div class="tip" id="t-seg-bar"></div></div>
+    </div>
+    <div class="cc" style="margin-bottom:12px;position:relative">
+      <div class="ch">
+        <span class="ct">Investimento × Custo/Visita</span>
+        <div class="lg">
+          <span class="li"><span class="ll" style="background:${CHART_INV}"></span>Invest. (esq.)</span>
+          <span class="li"><span class="ll" style="background:${CHART_CPL}"></span>Custo/Visita (dir.)</span>
+        </div>
+      </div>
+      <div style="position:relative"><canvas id="c-dual-visita"></canvas><div class="tip" id="t-dual-visita"></div></div>
+    </div>
+    <div class="cc" style="position:relative">
+      <div class="ch">
+        <span class="ct">Volume de Visitas ao Perfil</span>
+        <div class="lg"><span class="li"><span class="ld" style="background:${CHART_COLOR}"></span>Visitas/dia</span></div>
+      </div>
+      <div style="position:relative"><canvas id="c-pv-bar"></canvas><div class="tip" id="t-pv-bar"></div></div>
+    </div>`;
+  requestAnimationFrame(()=>{
+    const mW=document.getElementById("c-dual-seg")?.parentElement?.offsetWidth||720;
+    drawDualDist("c-dual-seg",daily,mW,230);
+    drawSegBar("c-seg-bar",daily,mW,180);
+    drawDualCustoVisita("c-dual-visita",daily,mW,230);
+    drawProfileBar("c-pv-bar",daily,mW,180);
+    setupTip("c-dual-seg","t-dual-seg",daily,[
+      {key:"spend",color:CHART_INV,name:"Investimento"},
+      {key:"custoPorSeguidor",color:CHART_CPL,name:"Custo/Seg."},
+    ]);
+    setupTip("c-seg-bar","t-seg-bar",daily,[
+      {key:"seguidores",color:"#10b981",name:"Seguidores",fmt:v=>Math.round(v).toString()},
+    ],40,12);
+    setupTip("c-dual-visita","t-dual-visita",daily,[
+      {key:"spend",color:CHART_INV,name:"Investimento"},
+      {key:"custoPorVisita",color:CHART_CPL,name:"Custo/Visita"},
+    ]);
+    setupTip("c-pv-bar","t-pv-bar",daily,[
+      {key:"profileVisits",color:CHART_COLOR,name:"Visitas",fmt:v=>Math.round(v).toString()},
+    ],40,12);
+  });
+}
+
+// ── Render Tráfego (Seguidores) ───────────────────────────────────────────
+function renderTrafegoSeg(){
+  const el=document.getElementById("page-trafego");if(!el)return;
+  const today=todayISO();
+  const todayM=getDayMetricsDist(today);
+  const p3Start=subDays(today,3);
+  const p3End=subDays(today,1);
+  const p3Tot=getTotalsDist(getDailyDist(p3Start,p3End));
+  const daily=getDailyDist(S.startDate,S.endDate);
+
+  const METRICS=[
+    {key:"spend",          lbl:"Investimento",     fmt:fBRL},
+    {key:"custoPorVisita", lbl:"Custo/Visita",      fmt:fBRL},
+    {key:"cpc",            lbl:"CPC",               fmt:fBRL},
+    {key:"ctr",            lbl:"CTR",               fmt:fPct},
+    {key:"cpm",            lbl:"CPM",               fmt:fBRL},
+    {key:"hookRate",       lbl:"Hook Rate",         fmt:fPct},
+    {key:"holdRate",       lbl:"Hold Rate",         fmt:fPct},
+    {key:"txConvSeg",      lbl:"Tx Conv. Seguidor", fmt:fPct},
+  ];
+  function metricsRow(d){
+    return METRICS.map(m=>{
+      const v=d[m.key]||0;
+      return `<div class="kc" style="padding:12px 14px">
+        <div class="kc-lbl">${m.lbl}</div>
+        <div class="kc-val" style="color:var(--text-strong);font-size:17px">${m.fmt(v)}</div>
+      </div>`;
+    }).join("");
+  }
+  const CHART_CFGS=[
+    {key:"ctr",          lbl:"CTR",             fmt:fPct},
+    {key:"cpm",          lbl:"CPM",             fmt:fBRL},
+    {key:"cpc",          lbl:"CPC",             fmt:fBRL},
+    {key:"hookRate",     lbl:"Hook Rate",       fmt:fPct},
+    {key:"holdRate",     lbl:"Hold Rate",       fmt:fPct},
+  ];
+  el.innerHTML=`
+    <div class="hdr" style="margin-bottom:6px">
+      <div>
+        <div class="hdr-title">Métricas de Tráfego — Seguidores</div>
+        <div class="hdr-sub">atualizado em: ${S.updated||"—"}</div>
+      </div>
+    </div>
+    ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+    <div class="section-lbl">Hoje — ${fDateBR(today)}</div>
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:16px">
+      ${metricsRow(todayM)}
+    </div>
+    <div class="section-lbl">Últimos 3 dias — ${fDateBR(p3Start)} a ${fDateBR(p3End)}</div>
+    <div style="display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin-bottom:20px">
+      ${metricsRow(p3Tot)}
+    </div>
+    <div class="charts-2x3">
+      ${CHART_CFGS.map(c=>`<div class="cc" style="position:relative">
+        <div class="ch"><span class="ct">${c.lbl}</span></div>
+        <div style="position:relative"><canvas id="tcs-${c.key}"></canvas><div class="tip" id="tts-${c.key}"></div></div>
+      </div>`).join("")}
+    </div>`;
+  requestAnimationFrame(()=>{
+    const sW=document.getElementById("tcs-ctr")?.parentElement?.offsetWidth||500;
+    CHART_CFGS.forEach(c=>{
+      drawChartWithOverlay(`tcs-${c.key}`,daily,c.key,c.fmt,null,"",false,sW,170);
+      setupTip(`tcs-${c.key}`,`tts-${c.key}`,daily,[{key:c.key,color:CHART_COLOR,name:c.lbl,fmt:c.fmt}],52,12);
+    });
+  });
+}
+
+// ── Render Anúncios (Seguidores) ──────────────────────────────────────────
+function renderAnunciosSeg(){
+  const el=document.getElementById("page-anuncios");if(!el)return;
+  const start=S.startDate,end=S.endDate;
+  function sumSeg(map,key){let t=0;for(const[d,n]of Object.entries(map[key]||{})){if(d>=start&&d<=end)t+=(n.seguidores||0);}return t;}
+  function fDM(iso){if(!iso)return"—";const[,m,d]=iso.split("-");return`${d}/${m}`;}
+  const dateLabel=start===end?fDM(start):`${fDM(start)} a ${fDM(end)}`;
+
+  // Campaign rows
+  const campRows=[];
+  for(const[campName,byDate] of Object.entries(S.distMetaByCampByDate)){
+    let cSpend=0,cClicks=0,cImpr=0,cPV=0;
+    for(const[d,vals] of Object.entries(byDate)){if(d>=start&&d<=end){cSpend+=vals.spend;cClicks+=vals.clicks;cImpr+=vals.impressions;cPV+=vals.profileVisits||0;}}
+    if(cSpend===0)continue;
+    const cSeg=sumSeg(S.distSegByCamp,campName);
+    campRows.push({campName,spend:cSpend,clicks:cClicks,impressions:cImpr,profileVisits:cPV,seguidores:cSeg,
+      ctr:cImpr>0?(cClicks/cImpr)*100:0,cpm:cImpr>0?(cSpend/cImpr)*1000:0,
+      custoPorVisita:cPV>0?cSpend/cPV:0,custoPorSeg:cSeg>0?cSpend/cSeg:0});
+  }
+  const{col:cCol,dir:cDir}=S.cSort;
+  const sortedCamps=[...campRows].sort((a,b)=>{const av=a[cCol]??"",bv=b[cCol]??"";if(typeof av==="string")return cDir==="asc"?av.localeCompare(bv):bv.localeCompare(av);return cDir==="asc"?av-bv:bv-av;});
+  const _cq=S.campSearch.trim().toLowerCase();
+  const filteredCamps=_cq?sortedCamps.filter(c=>c.campName.toLowerCase().includes(_cq)):sortedCamps;
+
+  // Ad rows
+  const hasCampSel=S.selectedCamps.size>0;
+  const adRows=[];
+  for(const[adName,meta] of Object.entries(S.distMetaByAd)){
+    if(hasCampSel){const adCamps=meta.camps||new Set();if(![...S.selectedCamps].some(c=>adCamps.has(c)))continue;}
+    const byDate=S.distMetaByAdByDate[adName]||{};
+    let spend=0,clicks=0,impressions=0,profileVisits=0,igUrl="";
+    for(const[d,vals] of Object.entries(byDate)){if(d>=start&&d<=end){spend+=vals.spend;clicks+=vals.clicks;impressions+=vals.impressions;profileVisits+=vals.profileVisits||0;if(!igUrl&&vals.igUrl)igUrl=vals.igUrl;}}
+    if(spend===0)continue;
+    if(!igUrl)igUrl=meta.igUrl||"";
+    const seguidores=sumSeg(S.distSegByAd,adName);
+    adRows.push({adName,spend,clicks,impressions,profileVisits,seguidores,igUrl,
+      ctr:impressions>0?(clicks/impressions)*100:0,cpm:impressions>0?(spend/impressions)*1000:0,
+      custoPorVisita:profileVisits>0?spend/profileVisits:0,custoPorSeg:seguidores>0?spend/seguidores:0});
+  }
+  const totSpend=campRows.reduce((a,c)=>a+c.spend,0);
+  const totSeg=campRows.reduce((a,c)=>a+c.seguidores,0);
+  const totPV=campRows.reduce((a,c)=>a+c.profileVisits,0);
+  const totClicks=campRows.reduce((a,c)=>a+c.clicks,0);
+  const totImpr=campRows.reduce((a,c)=>a+c.impressions,0);
+  const totCtr=totImpr>0?(totClicks/totImpr)*100:0;
+  const totCustoPorSeg=totSeg>0?totSpend/totSeg:0;
+
+  const _aq=S.adSearch.trim().toLowerCase();
+  const filteredAds=_aq?adRows.filter(a=>a.adName.toLowerCase().includes(_aq)):adRows;
+  const{col,dir}=S.aSort;
+  const sorted=[...filteredAds].sort((a,b)=>{const av=a[col]??0,bv=b[col]??0;if(typeof av==="string")return dir==="asc"?av.localeCompare(bv):bv.localeCompare(av);return dir==="asc"?av-bv:bv-av;});
+
+  const selAds=sorted.filter(a=>S.selectedAds.has(a.adName));
+  const hasSelAds=selAds.length>0;
+  let adResumoText="";
+  if(hasSelAds){
+    const lines=["*Melhores ads - TMR Seguidores*","",`_${dateLabel}_`,""];
+    for(const a of selAds){
+      lines.push("Nome do ad ⤵️");lines.push(a.adName);
+      if(a.igUrl)lines.push(a.igUrl);
+      lines.push(`Investimento:\t${fBRL(a.spend)}`);
+      lines.push(`Visitas ao Perfil:\t${a.profileVisits}`);
+      lines.push(`Custo/Visita:\t${a.profileVisits>0?fBRL(a.custoPorVisita):"—"}`);
+      lines.push(`Seguidores:\t${a.seguidores}`);
+      lines.push(`Custo/Seguidor:\t${a.seguidores>0?fBRL(a.custoPorSeg):"—"}`);
+      lines.push("");
+      lines.push(`CTR:\t${fPct(a.ctr)}`);
+      lines.push(`CPM:\t${fBRL(a.cpm)}`);
+      lines.push("");
+    }
+    adResumoText=lines.join("\n");
+  }
+  el._adResumoText=adResumoText;
+
+  const _fid=document.activeElement?.id;
+  const TH="padding:10px 14px;text-align:right;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;cursor:pointer;user-select:none;border-bottom:1px solid var(--border);white-space:nowrap";
+  const THL="padding:10px 14px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--hint);border-bottom:1px solid var(--border);white-space:nowrap";
+  const THCK="width:36px;padding:10px 8px;text-align:center;border-bottom:1px solid var(--border)";
+  function thS(col_,lbl,isCamp){
+    const aC=isCamp?cCol:col,aD=isCamp?cDir:dir,active=aC===col_;
+    const arrow=active?(aD==="asc"?" ↑":" ↓"):" ↕";
+    const fn=isCamp?`sortCampanhas('${col_}')`:`sortAnuncios('${col_}')`;
+    return `<th onclick="${fn}" style="${TH};color:${active?"var(--text)":"var(--hint)"}">${lbl}<span style="color:${active?"#60a5fa":"var(--hint)"};font-size:9px;margin-left:3px">${arrow}</span></th>`;
+  }
+  function chkBox(checked){
+    return `<div style="width:16px;height:16px;border-radius:4px;border:2px solid ${checked?"#10b981":"rgba(255,255,255,.2)"};background:${checked?"#10b981":"transparent"};display:flex;align-items:center;justify-content:center;margin:auto;transition:all .15s">
+      ${checked?`<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L4 7L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`:""}
+    </div>`;
+  }
+
+  el.innerHTML=`
+    <div class="hdr" style="margin-bottom:6px">
+      <div>
+        <div class="hdr-title">Campanhas / Anúncios — Seguidores</div>
+        <div class="hdr-sub">atualizado em: ${S.updated||"—"} · ${sortedCamps.length} campanhas · ${sorted.length} anúncios${S.selectedAds.size>0?" · "+S.selectedAds.size+" selecionado(s)":""}</div>
+      </div>
+    </div>
+    ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:20px">
+      ${kpiCard("Investimento",fBRL(totSpend),"","var(--text-strong)")}
+      ${kpiCard("Visitas ao Perfil",totPV.toLocaleString("pt-BR"),"","var(--text-strong)")}
+      ${kpiCard("Seguidores",totSeg.toLocaleString("pt-BR"),"","var(--text-strong)")}
+      ${kpiCard("Custo/Seguidor",totCustoPorSeg>0?fBRL(totCustoPorSeg):"—","","var(--text-strong)")}
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div class="section-lbl" style="margin-bottom:0">Campanhas</div>
+      ${S.selectedCamps.size>0?`<button onclick="clearCamps()" style="font-size:10px;padding:3px 9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#f87171;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Limpar (${S.selectedCamps.size})</button>`:""}
+      <span style="font-size:10px;color:var(--hint)">Clique para filtrar anúncios</span>
+    </div>
+    <div style="position:relative;margin-bottom:10px">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--hint);font-size:12px;pointer-events:none">🔍</span>
+      <input id="camp-search-input" oninput="setCampSearch(this.value)" value="${S.campSearch}" placeholder="Buscar campanha…" style="width:100%;padding:8px 12px 8px 34px;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box" onfocus="this.style.borderColor='rgba(96,165,250,.4)'" onblur="this.style.borderColor='var(--border)'"/>
+    </div>
+    <div style="overflow-x:auto;margin-bottom:22px">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:var(--card)">
+          <th style="${THCK}"></th>
+          <th onclick="sortCampanhas('campName')" style="${THL};cursor:pointer;user-select:none">Campanha ${cCol==="campName"?(cDir==="asc"?"↑":"↓"):"↕"}</th>
+          ${thS("spend","Investimento",true)}
+          ${thS("profileVisits","Visitas",true)}
+          ${thS("custoPorVisita","Custo/Visita",true)}
+          ${thS("seguidores","Seguidores",true)}
+          ${thS("custoPorSeg","Custo/Seg.",true)}
+          ${thS("ctr","CTR",true)}
+          ${thS("cpm","CPM",true)}
+        </tr></thead>
+        <tbody>
+          ${filteredCamps.map(c=>{
+            const sel=S.selectedCamps.has(c.campName);
+            return `<tr onclick="toggleCamp('${c.campName.replace(/\\/g,"\\\\").replace(/'/g,"\\'")}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}" onmouseover="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='rgba(255,255,255,.03)'" onmouseout="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='transparent'" data-sel="${sel?"1":"0"}">
+              <td style="padding:8px;text-align:center;border-top:1px solid var(--border)">${chkBox(sel)}</td>
+              <td style="padding:9px 14px;color:${sel?"#10b981":"var(--text)"};font-size:11px;font-weight:${sel?600:400};max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span title="${c.campName}">${c.campName}</span></td>
+              <td style="padding:9px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text-strong)">${fBRL(c.spend)}</td>
+              <td style="padding:9px 14px;text-align:right;font-family:'JetBrains Mono',monospace">${c.profileVisits}</td>
+              <td style="padding:9px 14px;text-align:right;color:var(--text-strong)">${c.custoPorVisita>0?fBRL(c.custoPorVisita):"—"}</td>
+              <td style="padding:9px 14px;text-align:right;font-family:'JetBrains Mono',monospace">${c.seguidores}</td>
+              <td style="padding:9px 14px;text-align:right;color:var(--text-strong)">${c.custoPorSeg>0?fBRL(c.custoPorSeg):"—"}</td>
+              <td style="padding:9px 14px;text-align:right;color:var(--text-strong)">${fPct(c.ctr)}</td>
+              <td style="padding:9px 14px;text-align:right;color:var(--text-strong)">${fBRL(c.cpm)}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div class="section-lbl" style="margin-bottom:0">Anúncios</div>
+      ${S.selectedAds.size>0?`<button onclick="clearAds()" style="font-size:10px;padding:3px 9px;border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.08);color:#f87171;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Limpar (${S.selectedAds.size})</button>`:""}
+      <span style="font-size:10px;color:var(--hint)">Clique para selecionar e gerar resumo</span>
+    </div>
+    <div style="position:relative;margin-bottom:10px">
+      <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--hint);font-size:12px;pointer-events:none">🔍</span>
+      <input id="ad-search-input" oninput="setAdSearch(this.value)" value="${S.adSearch}" placeholder="Buscar anúncio…" style="width:100%;padding:8px 12px 8px 34px;background:var(--card);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box" onfocus="this.style.borderColor='rgba(96,165,250,.4)'" onblur="this.style.borderColor='var(--border)'"/>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:var(--card)">
+          <th style="${THCK}"></th>
+          <th onclick="sortAnuncios('adName')" style="${THL};cursor:pointer;user-select:none">Anúncio ${col==="adName"?(dir==="asc"?"↑":"↓"):"↕"}</th>
+          ${thS("spend","Investimento",false)}
+          ${thS("profileVisits","Visitas",false)}
+          ${thS("custoPorVisita","Custo/Visita",false)}
+          ${thS("seguidores","Seguidores",false)}
+          ${thS("custoPorSeg","Custo/Seg.",false)}
+          ${thS("ctr","CTR",false)}
+          ${thS("cpm","CPM",false)}
+          <th style="${THCK}"></th>
+        </tr></thead>
+        <tbody>
+          ${sorted.map(a=>{
+            const sel=S.selectedAds.has(a.adName);
+            return `<tr onclick="toggleAd('${a.adName.replace(/\\/g,"\\\\").replace(/'/g,"\\'")}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}" onmouseover="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='rgba(255,255,255,.03)'" onmouseout="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='transparent'" data-sel="${sel?"1":"0"}">
+              <td style="padding:8px;text-align:center;border-top:1px solid var(--border)">${chkBox(sel)}</td>
+              <td style="padding:9px 14px;color:${sel?"#10b981":"var(--text)"};font-size:11px;font-weight:${sel?600:400};max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.adName}">${a.adName}</td>
+              <td style="padding:9px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text-strong)">${fBRL(a.spend)}</td>
+              <td style="padding:9px 14px;text-align:right;font-family:'JetBrains Mono',monospace">${a.profileVisits}</td>
+              <td style="padding:9px 14px;text-align:right;color:var(--text-strong)">${a.custoPorVisita>0?fBRL(a.custoPorVisita):"—"}</td>
+              <td style="padding:9px 14px;text-align:right;font-family:'JetBrains Mono',monospace">${a.seguidores}</td>
+              <td style="padding:9px 14px;text-align:right;color:var(--text-strong)">${a.custoPorSeg>0?fBRL(a.custoPorSeg):"—"}</td>
+              <td style="padding:9px 14px;text-align:right;color:var(--text-strong)">${fPct(a.ctr)}</td>
+              <td style="padding:9px 14px;text-align:right;color:var(--text-strong)">${fBRL(a.cpm)}</td>
+              <td style="padding:9px 14px;text-align:center" onclick="event.stopPropagation()">${a.igUrl?`<a href="${a.igUrl}" target="_blank" rel="noopener" style="display:inline-block;padding:3px 8px;border:1px solid rgba(99,179,237,.35);border-radius:5px;color:#63b3ed;text-decoration:none;font-size:10px;font-weight:600" title="Ver anúncio">Ver ↗</a>`:"—"}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+    ${hasSelAds?`
+    <div style="margin-top:22px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div>
+          <div class="section-lbl" style="margin-bottom:2px">Resumo de Anúncios</div>
+          <div style="font-size:10px;color:var(--hint)">${selAds.length} ad(s): ${dateLabel}</div>
+        </div>
+        <button id="btn-copy-ads" onclick="copyAdResumo()" style="padding:6px 16px;background:rgba(59,130,246,.15);border:1px solid rgba(96,165,250,.35);color:#93c5fd;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;display:flex;align-items:center;gap:6px">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          Copiar resumo
+        </button>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px">
+        <pre style="font-family:'JetBrains Mono','DM Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.9;margin:0;user-select:all">${adResumoText.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
+      </div>
+    </div>`:""}
+  `;
+  if(_fid==="camp-search-input"||_fid==="ad-search-input"){
+    requestAnimationFrame(()=>{
+      const _inp=document.getElementById(_fid);
+      if(_inp){_inp.focus();const _l=_inp.value.length;_inp.setSelectionRange(_l,_l);}
+    });
+  }
+}
+
+// ── Render Resumo (Seguidores) ────────────────────────────────────────────
+function renderResumoSeg(){
+  const el=document.getElementById("page-resumo");if(!el)return;
+  const today=todayISO(),yest=yesterdayISO();
+  const start=S.startDate||today,end=S.endDate||today;
+
+  function periodMetricsDist(s,e){
+    return getTotalsDist(getDailyDist(s,e));
+  }
+  const tot  =periodMetricsDist(start,end);
+  const ontem=periodMetricsDist(yest,yest);
+  const hojeBase=periodMetricsDist(today,today);
+  const hoje={...hojeBase};
+  if(S.manualSpendHoje!==null){
+    hoje.spend=S.manualSpendHoje;
+    hoje.custoPorSeguidor=hoje.seguidores>0?hoje.spend/hoje.seguidores:0;
+    hoje.custoPorVisita=hoje.profileVisits>0?hoje.spend/hoje.profileVisits:0;
+  }
+
+  function fDM(iso){if(!iso)return"—";const[,m,d]=iso.split("-");return`${d}/${m}`;}
+  const dateLabel=start===end?fDM(start):`${fDM(start)} a ${fDM(end)}`;
+
+  function fBRLR(n){return "R$ "+(n||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+  function blockText(label,m,plan){
+    const lines=[
+      `*${label}*`,``,
+      `Investimento:\t${fBRLR(m.spend)}`,
+      `Visitas ao Perfil:\t${m.profileVisits}`,
+      `Custo/Visita:\t${m.custoPorVisita>0?fBRLR(m.custoPorVisita):"—"}`,
+      `Seguidores:\t${m.seguidores}`,
+      `Custo/Seguidor:\t${m.custoPorSeguidor>0?fBRLR(m.custoPorSeguidor):"—"}`,
+      ``,
+      `Hook Rate:\t${fPct(m.hookRate)}`,
+      `Hold Rate:\t${fPct(m.holdRate)}`,
+      `Alcance:\tN/D`,
+    ];
+    if(plan!==null&&plan!==undefined)lines.push(`Plan até hj:\t${fBRLR(plan)}`);
+    return lines.join("\n");
+  }
+
+  const planVal=S.manualPlanDist;
+  const resumoText=
+`*Resumo TMR - Seguidores*\t\t
+
+_${dateLabel}_\t\t
+
+📶 ${blockText("Total",tot)}
+
+⬅️ ${blockText("Ontem",ontem)}
+
+⬇️ ${blockText("Hoje",hoje,planVal)}`;
+
+  function row(lbl,val){
+    return `<div style="display:grid;grid-template-columns:200px 1fr;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);align-items:center">
+      <span style="color:var(--muted);font-size:12px">${lbl}</span>
+      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-strong)">${val||"—"}</span>
+    </div>`;
+  }
+
+  function sectionSeg(label,m,isHoje=false){
+    const isManual=isHoje&&S.manualSpendHoje!==null;
+    const investRow=isHoje?`
+      <div style="display:grid;grid-template-columns:200px 1fr auto;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);align-items:center">
+        <span style="color:var(--muted);font-size:12px">Investimento</span>
+        <input id="manual-spend-input" value="${isManual?(m.spend||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}):""}"
+          placeholder="${fBRLR(hojeBase.spend)}" oninput="setManualSpendHoje(this.value)" onkeydown="if(event.key==='Enter')this.blur()"
+          style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${isManual?"#fbbf24":"var(--text-strong)"};background:transparent;border:none;border-bottom:1px solid ${isManual?"rgba(251,191,36,.4)":"rgba(255,255,255,.1)"};outline:none;padding:2px 0;width:100%"/>
+        <span style="min-width:80px;text-align:right">${isManual?`<button onclick="clearManualSpend()" style="font-size:10px;padding:2px 8px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fbbf24;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">↩ Restaurar</button>`:""}</span>
+      </div>`:row("Investimento",fBRLR(m.spend));
+    const planRow=isHoje?`
+      <div style="display:grid;grid-template-columns:200px 1fr auto;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);align-items:center">
+        <span style="color:var(--muted);font-size:12px">Plan até hj</span>
+        <input id="manual-plan-dist-input" value="${S.manualPlanDist!==null?(S.manualPlanDist||0).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2}):""}"
+          placeholder="Digitar plan…" oninput="setManualPlanDist(this.value)" onkeydown="if(event.key==='Enter')this.blur()"
+          style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${S.manualPlanDist!==null?"#fbbf24":"var(--text-strong)"};background:transparent;border:none;border-bottom:1px solid ${S.manualPlanDist!==null?"rgba(251,191,36,.4)":"rgba(255,255,255,.1)"};outline:none;padding:2px 0;width:100%"/>
+        <span style="min-width:80px;text-align:right">${S.manualPlanDist!==null?`<button onclick="clearManualPlanDist()" style="font-size:10px;padding:2px 8px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fbbf24;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif">↩ Limpar</button>`:""}</span>
+      </div>`:"";
+    return `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--text-strong);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)">${label}</div>
+      ${investRow}
+      ${row("Visitas ao Perfil",m.profileVisits.toLocaleString("pt-BR"))}
+      ${row("Custo/Visita",m.custoPorVisita>0?fBRLR(m.custoPorVisita):"—")}
+      ${row("Seguidores",m.seguidores.toLocaleString("pt-BR"))}
+      ${row("Custo/Seguidor",m.custoPorSeguidor>0?fBRLR(m.custoPorSeguidor):"—")}
+      <div style="height:10px"></div>
+      ${row("Hook Rate",fPct(m.hookRate))}
+      ${row("Hold Rate",fPct(m.holdRate))}
+      ${row("Alcance","N/D")}
+      ${planRow}
+    </div>`;
+  }
+
+  el.innerHTML=`
+    <div class="hdr" style="margin-bottom:16px">
+      <div>
+        <div class="hdr-title">Resumo diário — Seguidores</div>
+        <div class="hdr-sub">período: ${dateLabel} · ontem: ${fDM(yest)} · hoje: ${fDM(today)}</div>
+      </div>
+      <button onclick="copyResumo()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 18px;background:rgba(59,130,246,.18);border:1px solid rgba(96,165,250,.35);color:#93c5fd;border-radius:9px;cursor:pointer;font-size:12px;font-weight:600;font-family:'DM Sans',sans-serif;transition:all .15s">
+        📋 Copiar resumo
+      </button>
+    </div>
+    ${S.error?`<div class="err">⚠️ ${S.error}</div>`:""}
+    <div style="display:grid;grid-template-columns:1fr 420px;gap:20px;align-items:start">
+      <div>
+        ${sectionSeg("📶 Total",tot)}
+        ${sectionSeg("⬅️ Ontem",ontem)}
+        ${sectionSeg("⬇️ Hoje",hoje,true)}
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;position:sticky;top:70px">
+        <pre id="resumo-preview" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.8;margin:0;user-select:all">${resumoText.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
+      </div>
+    </div>`;
+  el._resumoText=resumoText;
+  requestAnimationFrame(()=>{
+    const fid=document.activeElement?.id;
+    if(fid==="manual-spend-input"||fid==="manual-plan-dist-input"){
+      const _s=document.getElementById(fid);
+      if(_s){const _l=_s.value.length;_s.setSelectionRange(_l,_l);}
+    }
+  });
+}
+function setManualPlanDist(v){
+  const n=parseFloat(v.replace(/[R$\s.]/g,"").replace(",","."));
+  S.manualPlanDist=(isNaN(n)||n<=0)?null:n;
+  renderResumoSeg();
+}
+function clearManualPlanDist(){S.manualPlanDist=null;renderResumoSeg();}
+
 function render(){
   renderHeader();
   const ld=document.getElementById("loading");
@@ -1557,11 +2365,12 @@ function render(){
       return;
     } else { errEl.style.display="none"; }
   }
-  if(S.currentPage==="principal")    renderPrincipal();
+  const isSeg=S.currentFunil==="seguidores";
+  if(S.currentPage==="principal")    isSeg?renderPrincipalSeg():renderPrincipal();
   else if(S.currentPage==="funil")   renderFunil();
-  else if(S.currentPage==="trafego") renderTrafego();
-  else if(S.currentPage==="anuncios")renderAnuncios();
-  else if(S.currentPage==="resumo")  renderResumo();
+  else if(S.currentPage==="trafego") isSeg?renderTrafegoSeg():renderTrafego();
+  else if(S.currentPage==="anuncios")isSeg?renderAnunciosSeg():renderAnuncios();
+  else if(S.currentPage==="resumo")  isSeg?renderResumoSeg():renderResumo();
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────
