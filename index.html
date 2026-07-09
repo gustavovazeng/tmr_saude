@@ -1845,9 +1845,9 @@ _${dateLabel}_\t\t
 function setManualSpendHoje(v){
   const n=parseFloat(v.replace(/[R$\s.]/g,"").replace(",","."));
   S.manualSpendHoje=(isNaN(n)||n<=0)?null:n;
-  renderResumo();
+  S.currentFunil==="seguidores"?renderResumoSeg():renderResumo();
 }
-function clearManualSpend(){S.manualSpendHoje=null;renderResumo();}
+function clearManualSpend(){S.manualSpendHoje=null;S.currentFunil==="seguidores"?renderResumoSeg():renderResumo();}
 function copyResumo(){
   const el=document.getElementById("page-resumo");
   const text=el?._resumoText||"";
@@ -2252,7 +2252,6 @@ function renderResumoSeg(){
       ``,
       `Hook Rate:\t${fPct(m.hookRate)}`,
       `Hold Rate:\t${fPct(m.holdRate)}`,
-      `Alcance:\tN/D`,
     ];
     if(plan!==null&&plan!==undefined)lines.push(`Plan até hj:\t${fBRLR(plan)}`);
     return lines.join("\n");
@@ -2306,7 +2305,6 @@ _${dateLabel}_\t\t
       <div style="height:10px"></div>
       ${row("Hook Rate",fPct(m.hookRate))}
       ${row("Hold Rate",fPct(m.holdRate))}
-      ${row("Alcance","N/D")}
       ${planRow}
     </div>`;
   }
