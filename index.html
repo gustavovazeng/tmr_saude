@@ -318,6 +318,7 @@ const CHART_COLOR = "#3b82f6";
 const CHART_INV   = "#3b82f6";
 const CHART_CPL   = "#fbbf24";
 const CHART_LEADS = "#34d399";
+const CHART_ORG   = "#a78bfa";
 
 // ── State ─────────────────────────────────────────────────────────────────
 const S = {
@@ -1033,6 +1034,37 @@ function drawLeadsBar(id,data,cssW,cssH){
   data.forEach((d,i)=>{if(i%step===0)ctx.fillText(d.label,xP(i),P.t+cH+18);});
 }
 
+function drawOrgLeadsBar(id,data,cssW,cssH){
+  const ctx=initCanvas(id,cssW,cssH);if(!ctx)return;
+  const P={t:14,r:12,b:28,l:40};
+  const cW=cssW-P.l-P.r,cH=cssH-P.t-P.b;
+  const vals=data.map(d=>d.organicLeads||0);
+  const maxV=Math.max(...vals,1)*1.15;
+  const n=data.length;
+  const barW=Math.max(4,Math.min(18,(cW/n)*0.7));
+  const xP=i=>P.l+(n>1?i/(n-1):0.5)*cW;
+  const yP=v=>P.t+cH-(v/maxV)*cH;
+  ctx.setLineDash([]);
+  for(let i=0;i<=4;i++){
+    const y=P.t+(i/4)*cH;
+    ctx.strokeStyle=GRID_C;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(P.l,y);ctx.lineTo(P.l+cW,y);ctx.stroke();
+    ctx.fillStyle=TICK_C;ctx.font="9px 'DM Mono',monospace";ctx.textAlign="right";
+    ctx.fillText(Math.round(maxV-(i/4)*maxV),P.l-4,y+3);
+  }
+  drawBars(ctx,xP,yP,P.t+cH,vals,CHART_ORG,barW);
+  const step=n>60?7:n>30?3:n>14?2:1;
+  ctx.textAlign="center";
+  vals.forEach((v,i)=>{
+    if(v>0&&(n<=30||i%step===0)){
+      ctx.fillStyle="#e8edf6";ctx.font=`bold ${Math.min(10,Math.max(7,barW))}px 'DM Mono',monospace`;
+      ctx.fillText(v,xP(i),yP(v)-4);
+    }
+  });
+  ctx.fillStyle=TICK_C;ctx.font="9px 'DM Mono',monospace";
+  data.forEach((d,i)=>{if(i%step===0)ctx.fillText(d.label,xP(i),P.t+cH+18);});
+}
+
 function drawDualDist(id,data,cssW,cssH){
   const ctx=initCanvas(id,cssW,cssH);if(!ctx)return;
   const P={t:14,r:58,b:28,l:64};
@@ -1266,17 +1298,28 @@ function renderPrincipal(){
         <div class="lg"><span class="li"><span class="ld" style="background:${CHART_LEADS}"></span>Leads/dia</span></div>
       </div>
       <div style="position:relative"><canvas id="c-leads"></canvas><div class="tip" id="t-leads"></div></div>
+    </div>
+    <div class="cc" style="position:relative;margin-top:12px">
+      <div class="ch">
+        <span class="ct">Volume de Leads (orgânico)</span>
+        <div class="lg"><span class="li"><span class="ld" style="background:${CHART_ORG}"></span>Leads/dia</span></div>
+      </div>
+      <div style="position:relative"><canvas id="c-org-leads"></canvas><div class="tip" id="t-org-leads"></div></div>
     </div>`;
   requestAnimationFrame(()=>{
     const mW=document.getElementById("c-dual")?.parentElement?.offsetWidth||720;
     drawDualTMR("c-dual",daily,mW,230);
     drawLeadsBar("c-leads",daily,mW,180);
+    drawOrgLeadsBar("c-org-leads",daily,mW,180);
     setupTip("c-dual","t-dual",daily,[
       {key:"spend",color:CHART_INV,name:"Investimento"},
       {key:"cpl",color:CHART_CPL,name:"CPL"},
     ]);
     setupTip("c-leads","t-leads",daily,[
       {key:"trafficLeads",color:CHART_LEADS,name:"Leads",fmt:v=>Math.round(v).toString()},
+    ],40,12);
+    setupTip("c-org-leads","t-org-leads",daily,[
+      {key:"organicLeads",color:CHART_ORG,name:"Leads",fmt:v=>Math.round(v).toString()},
     ],40,12);
   });
 }
