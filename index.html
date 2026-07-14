@@ -499,14 +499,13 @@ async function loadData(force=false){
       console.log(`[sheets] "${name}" OK — ${text.length} chars`);
       return parseCSVText(text);
     }
-    let dj, sj;
-    [mj, lj, dj, sj] = await Promise.all([
+    let sj;
+    [mj, lj, sj] = await Promise.all([
       fetchSheet("Base Meta"),
       fetchSheet("Base leads"),
-      fetchSheet("Base Meta - dist"),
       fetchSheet("Base seguidores"),
     ]);
-    console.log("[sheets] Meta:",mj.values.length-1,"| Leads:",lj.values.length-1,"| Dist:",dj.values.length-1,"| Seg:",sj.values.length-1);
+    console.log("[sheets] Meta:",mj.values.length-1,"| Leads:",lj.values.length-1,"| Seg:",sj.values.length-1);
 
     // ── Process Meta ─────────────────────────────────────────────────────
     const mD={}, mByAd={}, mByAdByDate={}, mByCamp={}, mByCampByDate={};
@@ -557,81 +556,69 @@ async function loadData(force=false){
     S.meta=mD; S.metaByAd=mByAd; S.metaByAdByDate=mByAdByDate;
     S.metaByCamp=mByCamp; S.metaByCampByDate=mByCampByDate;
 
-    // ── Process Dist Meta ─────────────────────────────────────────────
+    // ── Process Seguidores (planilha unificada) ───────────────────────
+    // Aba "Base seguidores" combina gastos + seguidores + vídeo em uma única fonte.
+    // Colunas PT: Dia, Nome do anúncio, Nome da campanha, Identificação do anúncio,
+    //             Valor usado (BRL) [formato US decimal], Cliques no link, Impressões,
+    //             Seguidores no Instagram, Visitas ao perfil do Instagram,
+    //             Reproduções do vídeo por no mínimo 3 segundos,
+    //             Reproduções de 25/50/75/95% do vídeo
     const dMeta={}, dByAd={}, dByAdByDate={}, dByCamp={}, dByCampByDate={};
-    // Handle duplicate header rows in Base Meta - dist
-    // Normalize doubled headers from gviz ("Date Date" → "Date", "Spend (Cost, Amount Spent) Spend (Cost, Amount Spent)" → "Spend (Cost, Amount Spent)")
-    function normHeaders(r){const n={};for(const[k,v]of Object.entries(r)){const m=k.match(/^(.+) \1$/);n[m?m[1]:k]=v;}return n;}
-    const distRows=parseSheet(dj).map(normHeaders).filter(r=>r["Date"]&&r["Date"]!=="Date");
-    for(const r of distRows){
-      const d=toISO(r["Date"]);if(!d)continue;
-      const sp=parseBRL(r["Spend (Cost, Amount Spent)"]||r["Amount Spent (BRL)"]||r["Valor gasto (BRL)"]||r["Valor gasto"]||r["Spend"]||"0");
-      const cl=parseInt(r["Action Link Clicks"]||r["Link Clicks"]||0)||0;
-      const im=parseInt(r["Impressions"]||0)||0;
-      const pv=parseInt(r["Instagram Profile Visits"]||r["Instagram Profile Visit"]||r["Profile Visits"]||0)||0;
-      const v3=parseInt(r["Action 3s Video Views"]||r["Action Video View"]||r["Action 3s Video Views Action Video View"]||0)||0;
-      const v15=parseInt(r["Video 15 Sec Watched Actions"]||0)||0;
+    const dSeg={}, dSegByAd={}, dSegByCamp={};
+    for(const r of parseSheet(sj)){
+      const d=toISO(r["Dia"]);if(!d)continue;
+      const sp=parseBRL(r["Valor usado (BRL)"]||"0");
+      const cl=parseInt(r["Cliques no link"]||0)||0;
+      const im=parseInt(r["Impressões"]||0)||0;
+      const pv=parseInt(r["Visitas ao perfil do Instagram"]||0)||0;
+      const seg=parseInt(r["Seguidores no Instagram"]||0)||0;
+      const v3=parseInt(r["Reproduções do vídeo por no mínimo 3 segundos"]||0)||0;
+      const v25=parseInt(r["Reproduções de 25% do vídeo"]||0)||0; // proxy para holdRate (substitui video15s)
+      const adName=(r["Nome do anúncio"]||"").trim();
+      const campName=(r["Nome da campanha"]||"—").trim();
+      const adId=(r["Identificação do anúncio"]||"").trim();
+
+      // por data
       if(!dMeta[d])dMeta[d]={spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
       dMeta[d].spend+=sp; dMeta[d].clicks+=cl; dMeta[d].impressions+=im;
-      dMeta[d].profileVisits+=pv; dMeta[d].video3s+=v3; dMeta[d].video15s+=v15;
-      const adName=(r["Ad Name"]||"").trim();
-      const campName=(r["Campaign Name"]||"—").trim();
-      const igUrl=r["Instagram Permalink URL"]||"";
+      dMeta[d].profileVisits+=pv; dMeta[d].video3s+=v3; dMeta[d].video15s+=v25;
+      if(!dSeg[d])dSeg[d]={seguidores:0,profileVisits:0};
+      dSeg[d].seguidores+=seg; dSeg[d].profileVisits+=pv;
+
+      // por anúncio
       if(adName){
-        if(!dByAd[adName])dByAd[adName]={adName,spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0,igUrl:"",camps:new Set()};
+        if(!dByAd[adName])dByAd[adName]={adName,adIds:new Set(),spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0,igUrl:"",camps:new Set()};
+        if(adId)dByAd[adName].adIds.add(adId);
         dByAd[adName].spend+=sp; dByAd[adName].clicks+=cl; dByAd[adName].impressions+=im;
-        dByAd[adName].profileVisits+=pv; dByAd[adName].video3s+=v3; dByAd[adName].video15s+=v15;
-        if(igUrl&&!dByAd[adName].igUrl)dByAd[adName].igUrl=igUrl;
+        dByAd[adName].profileVisits+=pv; dByAd[adName].video3s+=v3; dByAd[adName].video15s+=v25;
         if(campName&&campName!=="—")dByAd[adName].camps.add(campName);
         if(!dByAdByDate[adName])dByAdByDate[adName]={};
         if(!dByAdByDate[adName][d])dByAdByDate[adName][d]={spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0,igUrl:""};
         dByAdByDate[adName][d].spend+=sp; dByAdByDate[adName][d].clicks+=cl;
         dByAdByDate[adName][d].impressions+=im; dByAdByDate[adName][d].profileVisits+=pv;
-        dByAdByDate[adName][d].video3s+=v3; dByAdByDate[adName][d].video15s+=v15;
-        if(igUrl&&!dByAdByDate[adName][d].igUrl)dByAdByDate[adName][d].igUrl=igUrl;
-      }
-      if(campName&&campName!=="—"){
-        if(!dByCamp[campName])dByCamp[campName]={campName,spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
-        dByCamp[campName].spend+=sp; dByCamp[campName].clicks+=cl; dByCamp[campName].impressions+=im;
-        dByCamp[campName].profileVisits+=pv; dByCamp[campName].video3s+=v3; dByCamp[campName].video15s+=v15;
-        if(!dByCampByDate[campName])dByCampByDate[campName]={};
-        if(!dByCampByDate[campName][d])dByCampByDate[campName][d]={spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
-        dByCampByDate[campName][d].spend+=sp; dByCampByDate[campName][d].clicks+=cl;
-        dByCampByDate[campName][d].impressions+=im; dByCampByDate[campName][d].profileVisits+=pv;
-        dByCampByDate[campName][d].video3s+=v3; dByCampByDate[campName][d].video15s+=v15;
-      }
-    }
-    S.distMeta=dMeta; S.distMetaByAd=dByAd; S.distMetaByAdByDate=dByAdByDate;
-    S.distMetaByCamp=dByCamp; S.distMetaByCampByDate=dByCampByDate;
-
-    // ── Process Seguidores ────────────────────────────────────────────
-    function toISOSeg(raw){
-      if(!raw)return"";
-      raw=raw.trim();
-      if(/^\d{4}-\d{2}-\d{2}$/.test(raw))return raw;
-      const m=raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-      return m?`${m[3]}-${m[2]}-${m[1]}`:"";
-    }
-    const dSeg={}, dSegByAd={}, dSegByCamp={};
-    for(const r of parseSheet(sj)){
-      const d=toISOSeg(r["Dia"]);if(!d)continue;
-      const seg=parseInt(r["Seguidores no Instagram"]||0)||0;
-      const pv=parseInt(r["Visitas ao perfil do Instagram"]||0)||0;
-      if(!dSeg[d])dSeg[d]={seguidores:0,profileVisits:0};
-      dSeg[d].seguidores+=seg; dSeg[d].profileVisits+=pv;
-      const adName=(r["Nome do anúncio"]||"").trim();
-      const campName=(r["Nome da campanha"]||"").trim();
-      if(adName){
+        dByAdByDate[adName][d].video3s+=v3; dByAdByDate[adName][d].video15s+=v25;
         if(!dSegByAd[adName])dSegByAd[adName]={};
         if(!dSegByAd[adName][d])dSegByAd[adName][d]={seguidores:0};
         dSegByAd[adName][d].seguidores+=seg;
       }
-      if(campName){
+
+      // por campanha
+      if(campName&&campName!=="—"){
+        if(!dByCamp[campName])dByCamp[campName]={campName,spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
+        dByCamp[campName].spend+=sp; dByCamp[campName].clicks+=cl; dByCamp[campName].impressions+=im;
+        dByCamp[campName].profileVisits+=pv; dByCamp[campName].video3s+=v3; dByCamp[campName].video15s+=v25;
+        if(!dByCampByDate[campName])dByCampByDate[campName]={};
+        if(!dByCampByDate[campName][d])dByCampByDate[campName][d]={spend:0,clicks:0,impressions:0,profileVisits:0,video3s:0,video15s:0};
+        dByCampByDate[campName][d].spend+=sp; dByCampByDate[campName][d].clicks+=cl;
+        dByCampByDate[campName][d].impressions+=im; dByCampByDate[campName][d].profileVisits+=pv;
+        dByCampByDate[campName][d].video3s+=v3; dByCampByDate[campName][d].video15s+=v25;
         if(!dSegByCamp[campName])dSegByCamp[campName]={};
         if(!dSegByCamp[campName][d])dSegByCamp[campName][d]={seguidores:0};
         dSegByCamp[campName][d].seguidores+=seg;
       }
     }
+    S.distMeta=dMeta; S.distMetaByAd=dByAd; S.distMetaByAdByDate=dByAdByDate;
+    S.distMetaByCamp=dByCamp; S.distMetaByCampByDate=dByCampByDate;
     S.distSeg=dSeg; S.distSegByAd=dSegByAd; S.distSegByCamp=dSegByCamp;
 
     // ── Process Leads ─────────────────────────────────────────────────────
