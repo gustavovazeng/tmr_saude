@@ -330,6 +330,7 @@ const S = {
   metaByCamp:{}, metaByCampByDate:{},
   leadsFat:{},    // faturamento → count (traffic leads all-time)
   leadsEsp:{},    // especialidade → count
+  leadsByAdId:{}, // adId → date → count
   // ── Seguidores data ─────────────────────────────────────────────
   distMeta:{},    // date → {spend,clicks,impressions,profileVisits,video3s,video15s}
   distMetaByAd:{}, distMetaByAdByDate:{},
@@ -414,12 +415,6 @@ function statusBorder(val,meta,higherIsBetter){
 }
 
 // ── Ad code extractor ─────────────────────────────────────────────────────
-function extractAdvCode(name){
-  if(!name) return null;
-  const clean=name.replace(/^teste-/i,"");
-  const m=clean.match(/ad[vic]\d+/i);
-  return m ? m[0].toLowerCase() : null;
-}
 
 // ── Lead CSV field parser (handles swapped columns) ───────────────────────
 const FAT_VALS = new Set(["ate-75k","76k-a-150k","151k-a-300k","301k-a-500k","501k-1m","acima-1mm"]);
@@ -655,8 +650,9 @@ async function loadData(force=false){
         lD[d].organic++;
       }
     }
-    // Index real leads by advCode and campName (from UTM)
-    const lByAd={}, lByCamp={};
+    // Index real leads by Ad ID and campName (from UTM)
+    // utm_content format: "{ad_name}id{ad_id}"
+    const lByAdId={}, lByCamp={};
     for(const r of parseSheet(lj)){
       const dRaw=r["Data correta"]||r["Data de Envio"]||"";
       const d=toISO(dRaw);if(!d)continue;
@@ -665,12 +661,13 @@ async function loadData(force=false){
       const campMatch=utmMed.match(/^(.+?)id\d+$/);
       const campName=campMatch?campMatch[1]:utmMed;
       const utmCont=(r["utm_content"]||r["utm_term"]||"").trim();
-      const advCode=extractAdvCode(utmCont);
+      const adIdMatch=utmCont.match(/id(\d{10,})$/);
+      const adId=adIdMatch?adIdMatch[1]:null;
       if(campName){if(!lByCamp[campName])lByCamp[campName]={};lByCamp[campName][d]=(lByCamp[campName][d]||0)+1;}
-      if(advCode){if(!lByAd[advCode])lByAd[advCode]={};lByAd[advCode][d]=(lByAd[advCode][d]||0)+1;}
+      if(adId){if(!lByAdId[adId])lByAdId[adId]={};lByAdId[adId][d]=(lByAdId[adId][d]||0)+1;}
     }
     S.leadsD=lD; S.leadsFat=fatCount; S.leadsEsp=espCount;
-    S.leadsByAd=lByAd; S.leadsByCamp=lByCamp;
+    S.leadsByAdId=lByAdId; S.leadsByCamp=lByCamp;
 
     // Updated date
     const allDates=Object.keys(mD).sort();
@@ -1535,9 +1532,13 @@ function renderAnuncios(){
     for(const[d,vals] of Object.entries(byDate)){if(d>=start&&d<=end){spend+=vals.spend;clicks+=vals.clicks;impressions+=vals.impressions;if(!igUrl&&vals.igUrl)igUrl=vals.igUrl;}}
     if(spend===0)continue;
     if(!igUrl)igUrl=meta.igUrl||"";
-    const advCode=extractAdvCode(adName);
-    const leads=sumLeads(S.leadsByAd,advCode);
-    adRows.push({advCode,adName,spend,clicks,impressions,leads,igUrl,
+    // Sum leads across all Ad IDs associated with this ad name
+    let leads=0;
+    for(const adId of(meta.adIds||[])){
+      const byDate=S.leadsByAdId[adId]||{};
+      for(const[d,n] of Object.entries(byDate)){if(d>=start&&d<=end)leads+=n;}
+    }
+    adRows.push({adName,spend,clicks,impressions,leads,igUrl,
       cpc:clicks>0?spend/clicks:0, ctr:impressions>0?(clicks/impressions)*100:0,
       cpm:impressions>0?(spend/impressions)*1000:0, cpl:leads>0?spend/leads:0});
   }
@@ -1548,7 +1549,7 @@ function renderAnuncios(){
 
   // Search filter on ads
   const _aq=S.adSearch.trim().toLowerCase();
-  const filteredAds=_aq?adRows.filter(a=>(a.adName||a.advCode).toLowerCase().includes(_aq)):adRows;
+  const filteredAds=_aq?adRows.filter(a=>a.adName.toLowerCase().includes(_aq)):adRows;
 
   const {col,dir}=S.aSort;
   const sorted=[...filteredAds].sort((a,b)=>{
@@ -1565,7 +1566,7 @@ function renderAnuncios(){
     const lines=["*Melhores ads - TMR*","",`_${dateLabel}_`,""];
     for(const a of selAds){
       lines.push(`Nome do ad ⤵️`);
-      lines.push(a.adName||a.advCode);
+      lines.push(a.adName);
       if(a.igUrl)lines.push(a.igUrl);
       lines.push(`Investimento:\t${fBRL(a.spend)}`);
       lines.push(`Leads:\t${a.leads}`);
