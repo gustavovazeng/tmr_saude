@@ -529,25 +529,24 @@ async function loadData(force=false){
       mD[d].metaLeads   += ml;
       mD[d].landingViews+= lv;
 
-      const adName=r["Ad Name"]||"";
+      const adName=(r["Ad Name"]||"").trim();
       const adId=r["Ad ID"]||r["Ad Id"]||"";
       const igUrl=r["Instagram Permalink URL"]||"";
       const campName=r["Campaign Name"]||"—";
-      const advCode=extractAdvCode(adName);
 
-      if(advCode){
-        if(!mByAd[advCode])mByAd[advCode]={advCode,adName:adName,adIds:new Set(),spend:0,clicks:0,impressions:0,metaLeads:0,landingViews:0,igUrl:"",camps:new Set()};
-        if(adId)mByAd[advCode].adIds.add(adId);
-        mByAd[advCode].spend+=sp;mByAd[advCode].clicks+=cl;mByAd[advCode].impressions+=im;
-        mByAd[advCode].metaLeads+=ml;mByAd[advCode].landingViews+=lv;
-        if(igUrl&&!mByAd[advCode].igUrl)mByAd[advCode].igUrl=igUrl;
-        if(campName&&campName!=="—")mByAd[advCode].camps.add(campName);
-        if(!mByAdByDate[advCode])mByAdByDate[advCode]={};
-        if(!mByAdByDate[advCode][d])mByAdByDate[advCode][d]={spend:0,clicks:0,impressions:0,metaLeads:0,adIds:new Set(),igUrl:""};
-        mByAdByDate[advCode][d].spend+=sp;mByAdByDate[advCode][d].clicks+=cl;
-        mByAdByDate[advCode][d].impressions+=im;mByAdByDate[advCode][d].metaLeads+=ml;
-        if(adId)mByAdByDate[advCode][d].adIds.add(adId);
-        if(igUrl&&!mByAdByDate[advCode][d].igUrl)mByAdByDate[advCode][d].igUrl=igUrl;
+      if(adName){
+        if(!mByAd[adName])mByAd[adName]={adName,adIds:new Set(),spend:0,clicks:0,impressions:0,metaLeads:0,landingViews:0,igUrl:"",camps:new Set()};
+        if(adId)mByAd[adName].adIds.add(adId);
+        mByAd[adName].spend+=sp;mByAd[adName].clicks+=cl;mByAd[adName].impressions+=im;
+        mByAd[adName].metaLeads+=ml;mByAd[adName].landingViews+=lv;
+        if(igUrl&&!mByAd[adName].igUrl)mByAd[adName].igUrl=igUrl;
+        if(campName&&campName!=="—")mByAd[adName].camps.add(campName);
+        if(!mByAdByDate[adName])mByAdByDate[adName]={};
+        if(!mByAdByDate[adName][d])mByAdByDate[adName][d]={spend:0,clicks:0,impressions:0,metaLeads:0,adIds:new Set(),igUrl:""};
+        mByAdByDate[adName][d].spend+=sp;mByAdByDate[adName][d].clicks+=cl;
+        mByAdByDate[adName][d].impressions+=im;mByAdByDate[adName][d].metaLeads+=ml;
+        if(adId)mByAdByDate[adName][d].adIds.add(adId);
+        if(igUrl&&!mByAdByDate[adName][d].igUrl)mByAdByDate[adName][d].igUrl=igUrl;
       }
       if(campName&&campName!=="—"){
         if(!mByCamp[campName])mByCamp[campName]={campName,spend:0,clicks:0,impressions:0,metaLeads:0,landingViews:0};
@@ -1526,18 +1525,19 @@ function renderAnuncios(){
   // Ad rows — filter by selected campaign if any
   const hasCampSel=S.selectedCamps.size>0;
   const adRows=[];
-  for(const[advCode,meta] of Object.entries(S.metaByAd)){
+  for(const[adName,meta] of Object.entries(S.metaByAd)){
     if(hasCampSel){
       const adCamps=meta.camps||new Set();
       if(![...S.selectedCamps].some(c=>adCamps.has(c)))continue;
     }
-    const byDate=S.metaByAdByDate[advCode]||{};
+    const byDate=S.metaByAdByDate[adName]||{};
     let spend=0,clicks=0,impressions=0,igUrl="";
     for(const[d,vals] of Object.entries(byDate)){if(d>=start&&d<=end){spend+=vals.spend;clicks+=vals.clicks;impressions+=vals.impressions;if(!igUrl&&vals.igUrl)igUrl=vals.igUrl;}}
     if(spend===0)continue;
     if(!igUrl)igUrl=meta.igUrl||"";
+    const advCode=extractAdvCode(adName);
     const leads=sumLeads(S.leadsByAd,advCode);
-    adRows.push({advCode,adName:meta.adName||advCode,spend,clicks,impressions,leads,igUrl,
+    adRows.push({advCode,adName,spend,clicks,impressions,leads,igUrl,
       cpc:clicks>0?spend/clicks:0, ctr:impressions>0?(clicks/impressions)*100:0,
       cpm:impressions>0?(spend/impressions)*1000:0, cpl:leads>0?spend/leads:0});
   }
