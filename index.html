@@ -1558,7 +1558,7 @@ function renderAnuncios(){
   });
 
   // Resumo text for selected ads
-  const selAds=sorted.filter(a=>S.selectedAds.has(a.advCode));
+  const selAds=sorted.filter(a=>S.selectedAds.has(a.adName));
   const hasSelAds=selAds.length>0;
   let adResumoText="";
   if(hasSelAds){
@@ -1681,10 +1681,10 @@ function renderAnuncios(){
         </tr></thead>
         <tbody>
           ${sorted.map(a=>{
-            const sel=S.selectedAds.has(a.advCode);
-            return `<tr onclick="toggleAd('${a.advCode}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}" onmouseover="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='rgba(255,255,255,.03)'" onmouseout="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='transparent'" data-sel="${sel?'1':'0'}">
+            const sel=S.selectedAds.has(a.adName);
+            return `<tr onclick="toggleAd('${a.adName.replace(/\\/g,"\\\\").replace(/'/g,"\\'")}')" style="cursor:pointer;border-top:1px solid var(--border);background:${sel?"rgba(16,185,129,.1)":"transparent"}" onmouseover="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='rgba(255,255,255,.03)'" onmouseout="if(!this.dataset.sel||this.dataset.sel==='0')this.style.background='transparent'" data-sel="${sel?'1':'0'}">
               <td style="padding:8px;text-align:center;border-top:1px solid var(--border)">${chkBox(sel)}</td>
-              <td style="padding:9px 14px;color:${sel?"#10b981":"var(--text)"};font-size:11px;font-weight:${sel?600:400};max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.adName||a.advCode}">${a.adName||a.advCode}</td>
+              <td style="padding:9px 14px;color:${sel?"#10b981":"var(--text)"};font-size:11px;font-weight:${sel?600:400};max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.adName}">${a.adName}</td>
               <td style="padding:9px 14px;text-align:right;font-family:'JetBrains Mono',monospace;color:var(--text-strong)">${fBRL(a.spend)}</td>
               <td style="padding:9px 14px;text-align:right;font-family:'JetBrains Mono',monospace">${a.leads}</td>
               <td style="padding:9px 14px;text-align:right;color:${a.cpl>0?sc(a.cpl,META_CPL,false):"var(--muted)"}">${a.cpl>0?fBRL(a.cpl):"—"}</td>
